@@ -5,6 +5,8 @@ from datetime import date, timedelta
 from tqdm import tqdm
 from time import sleep
 
+DELAY_S = 0.2
+
 loc = locale.getlocale()[0].split("_")
 loc = f"{loc[0].lower()}-{loc[1].lower()}"
 
@@ -90,7 +92,7 @@ def main():
                 else:
                     res.raise_for_status()
                 
-                sleep(0.1)
+                sleep(DELAY_S)
 
 if __name__ == "__main__":
     main()
