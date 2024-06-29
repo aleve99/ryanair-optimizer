@@ -60,13 +60,13 @@ def main():
     fares = []
 
     for destination in destination_codes:
-        print(f"Scraping fares from {args.origin} to {destination}...")
+
         if res := requests.get(AVAILABLE_DATES(args.origin, destination)):
             available_dates = list(filter(lambda d: d >= args.from_date, [date.fromisoformat(d) for d in res.json()]))
         else:
             res.raise_for_status()
 
-        for date_out in tqdm(available_dates):
+        for date_out in tqdm(available_dates, f"Scraping fares {args.origin}-{destination}"):
             for days in range(args.min_days, args.max_days):
                 date_in = date_out + timedelta(days=days)
                 
