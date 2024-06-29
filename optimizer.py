@@ -75,7 +75,7 @@ def main():
                 
                 params = payload(args.origin, destination, date_out, date_in)
 
-                if res := requests.get(AVAILABILITY, params, headers=headers):
+                if res := requests.get(AVAILABILITY, params, headers=headers, cookies=cookies):
                     trips = res.json()['trips']
                     fares.append({
                         'date_out': date_out.strftime("%Y-%m-%d"),
