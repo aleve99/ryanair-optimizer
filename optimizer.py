@@ -44,8 +44,9 @@ cookies = {
 def main():
     parser = ArgumentParser("Ryanair fares finder", description="Find the cheapest fares from an airport origin")
 
-    parser.add_argument("-o", "--origin", required=True, type=str, help="The origin airport (airport IATA code)")
-    parser.add_argument("-d", "--max_days", required=True, type=int, help="The maximum days of vacation")
+    parser.add_argument("--origin", required=True, type=str, help="The origin airport (airport IATA code)")
+    parser.add_argument("--max_days", required=True, type=int, help="The maximum days of vacation")
+    parser.add_argument("--min_days", default=1, type=int, help="The minimum days of vacation")
     parser.add_argument("--from_date", default=date.today() + timedelta(days=1), type=date, help="The start date (yyyy-mm-dd) where to search, default is tomorrow")
 
     args = parser.parse_args()
@@ -66,7 +67,7 @@ def main():
             res.raise_for_status()
 
         for date_out in tqdm(available_dates):
-            for days in range(1, args.max_days):
+            for days in range(args.min_days, args.max_days):
                 date_in = date_out + timedelta(days=days)
                 
                 if date_in not in available_dates:
