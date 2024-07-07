@@ -114,10 +114,11 @@ def main():
     elif args.dest not in tuple(dest['arrivalAirport']['code'] for dest in destinations):
         raise ArgumentError(ref_arg_dest, f"Destination not available from selected origin airport {args.origin}")
     else:
-        destination_codes = (args.dest, )
+        destination_codes = tuple(args.dest)
         
     fares = []
 
+    flex_days = 6
     tot_requests = 0
     t_start_all = perf_counter_ns()
     for destination in destination_codes:
@@ -127,73 +128,78 @@ def main():
         res = requests.get(AVAILABLE_DATES(args.origin, destination))
         res.raise_for_status()
 
-        
-        available_dates = list()
-
         str_dates = res.json()
         to_date = date.fromisoformat(str_dates[-1]) if not args.to_date else args.to_date
-        for str_date in str_dates:
-            d = date.fromisoformat(str_date)
-
-            if d < args.from_date:
-                continue
-            elif d >= args.from_date and d <= to_date:
-                available_dates.append(d)
-            else:
-                break
-
+        
         reqs = list()
-        for date_out in available_dates:
-            for days in range(args.min_nights, args.max_nights + 1):
-                date_in = date_out + timedelta(days)
-                
-                if date_in > to_date:
-                    break
-                
-                params = get_payload(args.origin, destination, date_out, date_in).to_dict()
 
-                reqs.append(
-                    grequests.get(
-                        url=AVAILABILITY(language, country),
-                        params=params,
-                        headers=headers,
-                        cookies=cookies,
-                        timeout=config["network"]["timeout"],
-                        proxies={} if args.no_proxy else next(proxies),
-                        hooks={'response': hook})
-                )
-        
-        resps = grequests.imap(reqs, size=pool_size, exception_handler=exception_handler)
-        
-        req_num = 0
+        d = args.from_date
+
+        while d <= to_date:
+            fd = flex_days if (to_date - d).days >= flex_days else (to_date - d).days
+            params = get_payload(args.origin, destination, d, d, fd).to_dict()
+            reqs.append(grequests.get(
+                url=AVAILABILITY(language, country),
+                params=params,
+                headers=headers,
+                cookies=cookies,
+                timeout=config["network"]["timeout"],
+                proxies={} if args.no_proxy else next(proxies),
+                hooks={'response': hook}
+            ))
+
+            d = d + timedelta(days=flex_days+1)
+            
+        resps = grequests.map(reqs, size=pool_size, exception_handler=exception_handler)
+
         for req_num, res in enumerate(resps):
-            if res:
+            if res and req_num == 0:
                 json_res = res.json()
                 trips = json_res['trips']
-                for outbound_flight in trips[0]['dates'][0]['flights']:
-
-                    if outbound_flight['faresLeft'] != 0:
-                        for return_flight in trips[1]['dates'][0]['flights']:
-                            if return_flight['faresLeft'] != 0:
-                                fares.append({
-                                    'outbound_dep_time': datetime.fromisoformat(outbound_flight['time'][0]),
-                                    'outbound_arr_time': datetime.fromisoformat(outbound_flight['time'][1]),
-                                    'return_dep_time': datetime.fromisoformat(return_flight['time'][0]),
-                                    'return_arr_time': datetime.fromisoformat(return_flight['time'][1]),
-                                    'origin': trips[0]['origin'],
-                                    'destination': trips[0]['destination'],
-                                    'outbound_fare': outbound_flight['regularFare']['fares'][0]['amount'],
-                                    'outbound_left': outbound_flight['faresLeft'],
-                                    'return_fare': return_flight['regularFare']['fares'][0]['amount'],
-                                    'return_left': return_flight['faresLeft'],
-                                    'currency': json_res['currency']
-                                })
+                currency = json_res['currency']
+            elif res and req_num != 0:
+                json_res = res.json()
+                for j in range(2):
+                    trips[j]['dates'].extend(
+                        json_res['trips'][j]['dates']
+                    )
             else:
                 logger.warning(f"Request {res} is None")
                 logger.warning(f"{res.url}")
                 logger.warning(f"{res.text}")
-            
+                continue
         
+        for trip_date_out in trips[0]['dates']:
+            date_out = date.fromisoformat(trip_date_out['dateOut'][:10])
+
+            for outbound_flight in trip_date_out['flights']:
+                if outbound_flight['faresLeft'] != 0:
+                    for i in range(len(trips[1]['dates'])):
+                        trip_date_in = trips[1]['dates'][i]
+                        date_in = date.fromisoformat(trip_date_in['dateOut'][:10])
+
+                        if date_in < date_out:
+                            i = (date_out - date_in).days
+                            continue
+                        elif args.min_nights <= (date_in - date_out).days <= args.max_nights:
+                            for return_flight in trip_date_in['flights']:
+                                if return_flight['faresLeft'] != 0:
+                                    fares.append({
+                                        'outbound_dep_time': datetime.fromisoformat(outbound_flight['time'][0]),
+                                        'outbound_arr_time': datetime.fromisoformat(outbound_flight['time'][1]),
+                                        'return_dep_time': datetime.fromisoformat(return_flight['time'][0]),
+                                        'return_arr_time': datetime.fromisoformat(return_flight['time'][1]),
+                                        'origin': trips[0]['origin'],
+                                        'destination': trips[0]['destination'],
+                                        'outbound_fare': outbound_flight['regularFare']['fares'][0]['amount'],
+                                        'outbound_left': outbound_flight['faresLeft'],
+                                        'return_fare': return_flight['regularFare']['fares'][0]['amount'],
+                                        'return_left': return_flight['faresLeft'],
+                                        'currency': currency
+                                    })
+                        elif date_in != date_out:
+                            break
+                            
         t_end = perf_counter_ns()
         round_time = round(1e-9 * (t_end - t_start), 4)
         total_time = round(1e-9 * (t_end - t_start_all), 4)
