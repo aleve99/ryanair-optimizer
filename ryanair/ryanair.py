@@ -51,7 +51,11 @@ class Ryanair:
         self._origin = self.get_airport(iata_code)
         
     def get(self, url: str, **kwargs) -> Response:
-        res = self.sm.session.get(url, **kwargs, proxies={})
+        res = self.sm.session.get(
+            url, 
+            **kwargs,
+            proxies={},
+            timeout=self.sm.timeout)
         return res
 
     def get_airport(self, iata_code: str) -> Airport:
@@ -152,24 +156,24 @@ class Ryanair:
         requests = dict()
         for code in destinations:
             reqs = list()
-            str_dates = self.get_available_dates(code)
             
             if to_date is None:
-                to_date = date.fromisoformat(str_dates[-1])
+                str_dates = self.get_available_dates(code)
+                _to_date = date.fromisoformat(str_dates[-1])
 
-            dynamic_date = from_date
+            _from_date = from_date
             
-            while dynamic_date <= to_date:
-                if (to_date - dynamic_date).days >= self.FLEX_DAYS:
+            while _from_date <= _to_date:
+                if (_to_date - _from_date).days >= self.FLEX_DAYS:
                     flex_days = self.FLEX_DAYS
                 else:
-                    flex_days = (to_date - dynamic_date).days
+                    flex_days = (_to_date - _from_date).days
                 
                 params = get_availabilty_payload(
                     self.origin.IATA_code,
                     code,
-                    dynamic_date,
-                    dynamic_date,
+                    _from_date,
+                    _from_date,
                     flex_days
                 )
 
@@ -177,25 +181,39 @@ class Ryanair:
                     grequests.get(
                         url=self._availabilty_url(),
                         params=params.to_dict(),
-                        session=self.sm.session
+                        session=self.sm.session,
+                        timeout=self.sm.timeout
                     )
                 )
 
-                dynamic_date += timedelta(days=flex_days + 1)
+                _from_date += timedelta(days=flex_days + 1)
                 self.sm.set_next_proxy()
             
             requests[code] = reqs
         
         return requests
 
-    @staticmethod
     def _search_exec_handler(
+            self,
             request: grequests.AsyncRequest,
             exception: Exception
         ) -> Optional[Response]:
-
+        
+        logger.warning(f"Request failed. Exception type = {type(exception)}")
         for arg in exception.args:
             logger.warning(arg)
+        
+        logger.info("Retrying with next proxy")
+        
+        self.sm.set_next_proxy()
+        response = self.get(
+            url=request.url,
+            params=request.kwargs['params'],
+        )
+
+        logger.info(f"Response code <{response.status_code}>")
+
+        return response
 
     def _execute_and_compute(
             self,
