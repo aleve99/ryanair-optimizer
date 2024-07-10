@@ -18,3 +18,20 @@ def check_positive(value):
     
     return ivalue
 
+def check_destinations(
+        to_check: Iterable[str],
+        available: Iterable[str]
+    ):
+
+    if not to_check:
+       return available
+    else:
+        not_valid = tuple(
+            filter(
+                lambda dest: dest not in available,
+                to_check
+            )
+        )
+        if not_valid:
+            raise ValueError(f"Destinations {not_valid} not valid")
+        return to_check
