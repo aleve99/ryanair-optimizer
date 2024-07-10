@@ -1,209 +1,128 @@
-import grequests
-import requests
+import logging
 import pandas as pd
-import locale
 
-from argparse import ArgumentParser, ArgumentError
-from datetime import date, datetime, timedelta
 from pathlib import Path
-from itertools import cycle
-from time import perf_counter_ns
-from src.utils import *
+from datetime import date
+from argparse import ArgumentError, ArgumentParser
 
-SUPPORTED = list(CURRENCIES.keys())
-proxies = None
-converter = lambda str_date: date.fromisoformat(str_date) 
+from src.ryanair import Ryanair
+from src.utils.config import parse_toml, parse_proxies
+from src.utils.args_check import check_paths
 
-def exception_handler(request: grequests.AsyncRequest, exception):
-    logger.warning(f"Request failed. Exception type = {type(exception)}")
+_CONFIG_DEFAULT_PATH_ = "config/config.toml"
+_PROXYLIST_DEFAULT_PATH_ = "config/proxy_list.txt"
 
-    if isinstance(exception, requests.exceptions.ProxyError):
-        logger.warning(f"Proxy failed: {request.kwargs['proxies']['https']}")
-    
-    logger.debug(f"Details: {exception}")
-    logger.warning("Retrying with another proxy")
-
-    params = request.kwargs['params']
-    headers = request.kwargs['headers']
-    cookies = request.kwargs['cookies']
-
-    while True:
-        proxy = next(proxies)
-        try:
-            res = requests.get(request.url, params=params, headers=headers, cookies=cookies, proxies=proxy)
-            if res.ok:
-                logger.warning("Request with another proxy succeded")
-                logger.warning(proxy['https'])
-                return res
-            else:
-                logger.warning(f"Request without proxies failed, STATUS_CODE: <{res.status_code}>")
-                logger.warning("Retrying with another proxy")
-        except (requests.exceptions.ProxyError, requests.exceptions.ConnectionError) as error:
-            res = requests.get(request.url, params=params, headers=headers, cookies=cookies)
-            logger.warning(f"Proxy Error encountered: {type(error)}. Retrying without proxies")
-
-            if res.ok:
-                logger.warning("Request without proxies succedeed")
-                return res
-            else:
-                break
+logger = logging.getLogger("ryanair")
 
 def main():
-    global proxies
-    parser = ArgumentParser("Ryanair fares finder", description="Find the cheapest fares from an airport origin")
+    parser = ArgumentParser(
+        prog="Ryanair fares finder",
+        description="Find the cheapest fares from an airport origin"
+    )
 
-    ref_arg_ori = parser.add_argument("--origin", required=True, type=str, help="The origin airport (IATA code)")
-    ref_arg_dest = parser.add_argument("--dest", default=None, type=str, help="The destination airport (IATA code). If missing search across all destinations")
-    ref_arg_curr = parser.add_argument("--currency", default=None, type=str, help=f"The currency symbol to display fares, default is using local currency. Supported currencies {SUPPORTED}")
-    ref_arg_min_nights = parser.add_argument("--min-nights", default=1, type=int, help="The minimum nights of vacation, must be >= 0")
-    ref_arg_max_nights = parser.add_argument("--max-nights", required=True, type=int, help="The maximum nights of vacation, must be >= 0")
-    parser.add_argument("--from-date", default=date.today(), type=converter, help="The first date (yyyy-mm-dd) to search for flights, default is today")
-    parser.add_argument("--to-date", default=None, type=converter, help="The last date (yyyy-mm-dd) to search for flights, default is ryanair max range")
-    parser.add_argument("--cfg-path", default=Path("src/config.toml"), type=Path, help="Toml file for the proxy and other configurations")
-    parser.add_argument("--no-proxy", default=False, action='store_true', help="Use the proxy specified in the config.toml file")
+    parser.add_argument(
+        "--origin",
+        required=True,
+        type=str,
+        help="The origin airport (IATA code)"
+    )
+    parser.add_argument(
+        "--dests",
+        default=None,
+        type=str,
+        help="The destination airports (IATA code). If missing search across all destinations. Optional multiple ...|...|..."
+    )
+    parser.add_argument(
+        "--currency",
+        default=None,
+        type=str,
+        help=f"The currency symbol to display fares, default is using local currency. Supported currencies "
+    )
+    ref_arg_min_nights = parser.add_argument(
+        "--min-nights",
+        default=1,
+        type=int,
+        help="The minimum nights of vacation, must be >= 0"
+    )
+    ref_arg_max_nights = parser.add_argument(
+        "--max-nights",
+        required=True,
+        type=int,
+        help="The maximum nights of vacation, must be >= 0"
+    )
+    parser.add_argument(
+        "--from-date",
+        default=date.today(),
+        type=date.fromisoformat,
+        help="The first date (yyyy-mm-dd) to search for flights, default is today"
+    )
+    parser.add_argument(
+        "--to-date",
+        default=None,
+        type=date.fromisoformat,
+        help="The last date (yyyy-mm-dd) to search for flights, default is ryanair max range"
+    )
+    parser.add_argument(
+        "--config-path",
+        default=Path(_CONFIG_DEFAULT_PATH_),
+        type=Path,
+        help="Toml file for the proxy and other configurations"
+    )
+    parser.add_argument(
+        "--proxy-path",
+        default=Path(_PROXYLIST_DEFAULT_PATH_),
+        type=Path,
+        help=".txt file with a proxy domain for each line"
+    )
+    parser.add_argument(
+        "--no-proxy",
+        default=False,
+        action='store_true',
+        help="Use the proxy specified in the proxies file"
+    )
 
+    parser.add_argument(
+        "--use-usd",
+        default=False,
+        action='store_true',
+        help='Display prices in USD, otherwise the origin airport currency is used'
+    )
+    
     args = parser.parse_args()
 
-    if not args.cfg_path.is_file() or args.cfg_path.name.split('.')[-1] != "toml":
-        raise FileNotFoundError(f"{args.cfg_path.absolute()} is not a .toml file or doesn't exist")
-    
+    check_paths(
+        ((args.config_path, "toml"), (args.proxy_path, "txt"))
+    )
+
+    config = parse_toml(args.config_path)
+
+    ryanair = Ryanair(
+        rid=config['cookies']['rid'],
+        ridsig=config["cookies"]["rid.sig"],
+        origin=args.origin,
+        USD=args.use_usd
+    )
+
     if args.min_nights < 0:
         raise ArgumentError(ref_arg_min_nights, f"must be positive")
     if args.max_nights < 0:
         raise ArgumentError(ref_arg_max_nights, f"must be positive")
 
-    config = parse_toml(args.cfg_path)
-    ports = range(config['proxy']['first_port'], config['proxy']['first_port'] + config['proxy']['num_ports'])
-    
-    proxies = cycle({
-        'http': f'http://{config["proxy"]["username"]}:{config["proxy"]["password"]}@{config["proxy"]["host"]}:{port}',
-        'https': f'https://{config["proxy"]["username"]}:{config["proxy"]["password"]}@{config["proxy"]["host"]}:{port}',
-    } for port in ports)
-
-    pool_size = config['network']['pool_size']
-
-    if args.currency is None:
-        loc = locale.getlocale()[0].split("_")
-        language, country = loc[0].lower(), loc[1].lower()
-    elif args.currency in SUPPORTED:
-        language = CURRENCIES[args.currency]['langcode']
-        country = CURRENCIES[args.currency]['country']
+    if args.no_proxy:
+        proxies = ({},)
     else:
-        raise ArgumentError(ref_arg_curr, f"{args.currency} is not supported {SUPPORTED}")
-    
-    cookies = {
-        "rid": config["cookies"]["rid"],
-        "rid.sig": config["cookies"]["rid.sig"],
-        "mkt": f"/{country}/{language}/"
-    }
+        proxies = parse_proxies(args.proxy_path)
+        ryanair.sm.extend_proxies_pool(proxies)
 
-    res = requests.get(ACTIVE_AIRPORTS)
-    airports = map(lambda el: el['code'], res.json())
-    res.raise_for_status()
-    
-    if args.origin not in airports:
-        raise ArgumentError(ref_arg_ori, f"Origin {args.origin} is not a valid airport (IATA code)")
+    ryanair.sm.pool_size = config['network']['pool_size']
 
-    logger.info(f"Retrieving available destinations from {args.origin}")
-    res = requests.get(DESTINATIONS(args.origin))
-    destinations = res.json()
-    res.raise_for_status()
-
-    if not args.dest:
-        destination_codes = tuple(dest['arrivalAirport']['code'] for dest in destinations)
-    elif args.dest not in tuple(dest['arrivalAirport']['code'] for dest in destinations):
-        raise ArgumentError(ref_arg_dest, f"Destination not available from selected origin airport {args.origin}")
-    else:
-        destination_codes = (args.dest, )
-        
-    fares = []
-
-    tot_requests = 0
-    t_start_all = perf_counter_ns()
-    for destination in destination_codes:
-        t_start = perf_counter_ns()
-        logger.info(f"Scanning fares for {args.origin}-{destination}")
-
-        res = requests.get(AVAILABLE_DATES(args.origin, destination))
-        res.raise_for_status()
-
-        
-        available_dates = list()
-
-        str_dates = res.json()
-        to_date = date.fromisoformat(str_dates[-1]) if not args.to_date else args.to_date
-        for str_date in str_dates:
-            d = date.fromisoformat(str_date)
-
-            if d < args.from_date:
-                continue
-            elif d >= args.from_date and d <= to_date:
-                available_dates.append(d)
-            else:
-                break
-
-        reqs = list()
-        for date_out in available_dates:
-            for days in range(args.min_nights, args.max_nights + 1):
-                date_in = date_out + timedelta(days)
-                
-                if date_in > to_date:
-                    break
-                
-                params = get_payload(args.origin, destination, date_out, date_in).to_dict()
-
-                reqs.append(
-                    grequests.get(
-                        url=AVAILABILITY(language, country),
-                        params=params,
-                        headers=headers,
-                        cookies=cookies,
-                        timeout=config["network"]["timeout"],
-                        proxies={} if args.no_proxy else next(proxies),
-                        hooks={'response': hook})
-                )
-        
-        resps = grequests.imap(reqs, size=pool_size, exception_handler=exception_handler)
-        
-        req_num = 0
-        for req_num, res in enumerate(resps):
-            if res:
-                json_res = res.json()
-                trips = json_res['trips']
-                for outbound_flight in trips[0]['dates'][0]['flights']:
-
-                    if outbound_flight['faresLeft'] != 0:
-                        for return_flight in trips[1]['dates'][0]['flights']:
-                            if return_flight['faresLeft'] != 0:
-                                fares.append({
-                                    'outbound_dep_time': datetime.fromisoformat(outbound_flight['time'][0]),
-                                    'outbound_arr_time': datetime.fromisoformat(outbound_flight['time'][1]),
-                                    'return_dep_time': datetime.fromisoformat(return_flight['time'][0]),
-                                    'return_arr_time': datetime.fromisoformat(return_flight['time'][1]),
-                                    'origin': trips[0]['origin'],
-                                    'destination': trips[0]['destination'],
-                                    'outbound_fare': outbound_flight['regularFare']['fares'][0]['amount'],
-                                    'outbound_left': outbound_flight['faresLeft'],
-                                    'return_fare': return_flight['regularFare']['fares'][0]['amount'],
-                                    'return_left': return_flight['faresLeft'],
-                                    'currency': json_res['currency']
-                                })
-            else:
-                logger.warning(f"Request {res} is None")
-                logger.warning(f"{res.url}")
-                logger.warning(f"{res.text}")
-            
-        
-        t_end = perf_counter_ns()
-        round_time = round(1e-9 * (t_end - t_start), 4)
-        total_time = round(1e-9 * (t_end - t_start_all), 4)
-        perc = round(100* (destination_codes.index(destination) + 1) / len(destination_codes), 2)
-
-        logger.info(f"{args.origin}-{destination} done, {perc}%, time: {round_time}s, total time: {total_time}s")
-        logger.info(f"Requests done: {req_num + 1}")
-        tot_requests += (req_num + 1)
-
-    t_end_all = perf_counter_ns()
+    fares = ryanair.search_fares(
+        min_nights=args.min_nights,
+        max_nights=args.max_nights,
+        from_date=args.from_date,
+        to_date=args.to_date,
+        destinations=args.dests.split("|")
+    )
 
     df = pd.DataFrame(fares)
     if not df.empty:
@@ -215,8 +134,6 @@ def main():
     print(df)
 
     df.to_csv("fares.csv", index=False)
-    logger.info(f"Scraping done in {(t_end_all - t_start_all) * 1e-9}s")
-    logger.info(f"Total requests: {tot_requests}")
 
 if __name__ == "__main__":
     main()
