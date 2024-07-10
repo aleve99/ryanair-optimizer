@@ -2,7 +2,7 @@ import logging
 import locale
 import grequests
 
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, List, Iterable
 from datetime import date, timedelta, datetime
 from requests import Response
 
@@ -15,6 +15,7 @@ logger = logging.getLogger("ryanair")
 
 class Ryanair:
     BASE_API_URL = "https://www.ryanair.com/api/"
+    SERVICES_API_URL = "https://services-api.ryanair.com/"
     FLEX_DAYS = 6
 
     def __init__(
@@ -70,7 +71,7 @@ class Ryanair:
 
         return res.json()
     
-    def get_active_airports(self) -> Tuple[Airport]:
+    def get_active_airports(self) -> Tuple[Airport, ...]:
         res = self.get(self._active_airports_url())
 
         return tuple(
@@ -82,15 +83,15 @@ class Ryanair:
             ) for airport in res.json()
         )
 
-    def get_availability(self, payload: AvailabilityPayload) -> ...:
+    def get_availability(self, payload: AvailabilityPayload) -> dict:
         res = self.get(
-            self._availabilty_url(self.lang_code, self.country),
+            self._availabilty_url(),
             params=payload.to_dict()
         )
 
         return res.json()
     
-    def get_destination_codes(self) -> Tuple[str]:
+    def get_destination_codes(self) -> Tuple[str, ...]:
         res = self.get(
             self._destinations_url(self.origin.IATA_code)
         )
@@ -105,7 +106,7 @@ class Ryanair:
             max_nights: int,
             from_date: date,
             to_date: date = None,
-            destinations: List[str] = None
+            destinations: Iterable[str] = []
         ) -> List[Fare]:
         
         if not destinations:
@@ -139,7 +140,7 @@ class Ryanair:
             self,
             from_date: date,
             to_date: date,
-            destinations: List[str]
+            destinations: Iterable[str]
         ) -> List[grequests.AsyncRequest]:
         
         reqs = list()
@@ -255,23 +256,31 @@ class Ryanair:
         return fares
     
     @classmethod
-    def _airport_info_url(self, iata_code: str) -> str:
-        return self.BASE_API_URL + f'views/locate/5/airports/en/{iata_code}'
+    def _airport_info_url(cls, iata_code: str) -> str:
+        return cls.BASE_API_URL + f'views/locate/5/airports/en/{iata_code}'
 
     @classmethod
-    def _available_dates_url(self, origin: str, destination: str) -> str:
-        return self.BASE_API_URL + \
+    def _available_dates_url(cls, origin: str, destination: str) -> str:
+        return cls.BASE_API_URL + \
             f"farfnd/v4/oneWayFares/{origin}/{destination}/availabilities"
     
     @classmethod
-    def _active_airports_url(self) -> str:
-        return self.BASE_API_URL + "views/locate/5/airports/en/active"
+    def _active_airports_url(cls) -> str:
+        return cls.BASE_API_URL + "views/locate/5/airports/en/active"
     
     @classmethod
-    def _destinations_url(self, origin: str) -> str:
-        return self.BASE_API_URL + \
+    def _destinations_url(cls, origin: str) -> str:
+        return cls.BASE_API_URL + \
             f"views/locate/searchWidget/routes/en/airport/{origin}"
     
+    @classmethod
+    def _one_way_fares_url(cls) -> str:
+        return cls.SERVICES_API_URL + "farfnd/v4/oneWayFares"
+
+    @classmethod
+    def _round_trip_fares_url(cls) -> str:
+        return cls.SERVICES_API_URL + "farfnd/v4/roundTripFares"
+
     def _availabilty_url(self) -> str:
         return self.BASE_API_URL + \
             f"booking/v4/{self._currency_str}availability"
