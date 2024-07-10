@@ -70,7 +70,8 @@ def get_availabilty_payload(
         destination: str,
         date_out: date,
         date_in: date,
-        flex_days: int = 0
+        flex_days: int = 0,
+        round_trip: bool = True
     ) -> AvailabilityPayload:
 
     return AvailabilityPayload(
@@ -79,5 +80,6 @@ def get_availabilty_payload(
         DateOut=date_out,
         DateIn=date_in,
         FlexDaysIn=flex_days,
-        FlexDaysOut=flex_days
+        FlexDaysOut=flex_days,
+        RoundTrip=round_trip
     )
