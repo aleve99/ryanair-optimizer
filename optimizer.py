@@ -118,7 +118,7 @@ def main():
     ryanair.sm.pool_size = config['network']['pool_size']
     ryanair.sm.timeout = config['network']['timeout']
 
-    fares = ryanair.search_fares(
+    fares = ryanair.search_round_trip_fares(
         min_nights=args.min_nights,
         max_nights=args.max_nights,
         from_date=args.from_date,

@@ -9,6 +9,7 @@ from .session_manager import SessionManager
 from .payload import AvailabilityPayload, get_availabilty_payload
 from .types import Airport, Fare
 from .utils.timer import Timer
+from .utils.args_check import check_destinations
 
 logger = logging.getLogger("ryanair")
 
@@ -107,7 +108,7 @@ class Ryanair:
             dest['arrivalAirport']['code'] for dest in res.json()
         )
 
-    def search_fares(
+    def search_round_trip_fares(
             self,
             min_nights: int,
             max_nights: int,
@@ -116,17 +117,7 @@ class Ryanair:
             destinations: Iterable[str] = []
         ) -> List[Fare]:
         
-        if not destinations:
-            destinations = self.destinations
-        else:
-            not_valid = tuple(
-                filter(
-                    lambda dest: dest not in self.destinations,
-                    destinations
-                )
-            )
-            if not_valid:
-                raise ValueError(f"Destinations {not_valid} not valid")
+        destinations = check_destinations(destinations, self.destinations)
 
         timer = Timer(start=True)
 
@@ -146,11 +137,21 @@ class Ryanair:
 
         return fares
     
+    def search_one_way_fares(
+            self,
+            from_date: date,
+            to_date: date = None,
+            destinations: Iterable[str] = []
+        ) -> List[Fare]:
+        pass
+
+
     def _prepare_search_requests(
             self,
             from_date: date,
             to_date: date,
-            destinations: Iterable[str]
+            destinations: Iterable[str],
+            round_trip: bool = True
         ) -> Dict[str, List[grequests.AsyncRequest]]:
         
         requests = dict()
@@ -170,11 +171,12 @@ class Ryanair:
                     flex_days = (_to_date - _from_date).days
                 
                 params = get_availabilty_payload(
-                    self.origin.IATA_code,
-                    code,
-                    _from_date,
-                    _from_date,
-                    flex_days
+                    origin=self.origin.IATA_code,
+                    destination=code,
+                    date_out=_from_date,
+                    date_in=_from_date,
+                    flex_days=flex_days,
+                    round_trip=round_trip
                 )
 
                 reqs.append(
