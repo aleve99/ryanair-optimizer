@@ -94,6 +94,9 @@ def main():
         ((args.config_path, "toml"), (args.proxy_path, "txt"))
     )
 
+    logger.info(f"Using config path: {args.config_path.absolute()}")
+    logger.info(f"Using proxies path: {args.proxy_path.absolute()}")
+
     config = parse_toml(args.config_path)
 
     ryanair = Ryanair(
@@ -113,6 +116,7 @@ def main():
         ryanair.sm.extend_proxies_pool(proxies)
 
     ryanair.sm.pool_size = config['network']['pool_size']
+    ryanair.sm.timeout = config['network']['timeout']
 
     fares = ryanair.search_fares(
         min_nights=args.min_nights,
@@ -124,8 +128,14 @@ def main():
 
     df = pd.DataFrame(fares)
     if not df.empty:
-        df['round_trip_fare'] = (df["outbound_fare"] + df["return_fare"]).round(decimals=2)
-        df = df.sort_values(by="round_trip_fare", ascending=True).reset_index(drop=True)
+        df['round_trip_fare'] = (df["outbound_fare"] + df["return_fare"]).round(
+            decimals=2
+        )
+        
+        df = df.sort_values(
+            by="round_trip_fare", ascending=True
+        ).reset_index(drop=True)
+
         columns = df.columns.to_list()
         df = df[columns[:-3] + [df.columns[-1], df.columns[-2]]]
     

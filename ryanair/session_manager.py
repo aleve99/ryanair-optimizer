@@ -5,6 +5,7 @@ from typing import List, Dict
 from requests import Response
 
 _POOL_SIZE_ = 5
+_TIMEOUT_ = 60
 
 class SessionManager:
     BASE_SITE_FOR_SESSION_URL = "https://www.ryanair.com/ie/en"
@@ -25,6 +26,7 @@ class SessionManager:
         self._create_proxies_pool()
         self.session.hooks = {"response": self._hook}
         self.pool_size = _POOL_SIZE_
+        self.timeout = _TIMEOUT_
 
     def _update_session_cookies(self):
         self.session.get(
@@ -50,6 +52,14 @@ class SessionManager:
     @pool_size.setter
     def pool_size(self, size: int) -> None:
         self._pool_size = size
+
+    @property
+    def timeout(self) -> int:
+        return self._timeout
+    
+    @timeout.setter
+    def timeout(self, timeout: int) -> None:
+        self._timeout = timeout
 
     def _create_proxies_pool(self) -> None:
         self._proxies_pool = [{}]

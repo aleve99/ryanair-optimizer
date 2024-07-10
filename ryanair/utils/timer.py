@@ -1,9 +1,12 @@
 from time import perf_counter_ns
 
 class Timer:
-    def __init__(self) -> None:
+    def __init__(self, start: bool = False) -> None:
         self._t_start = None
         self._t_stop = None
+
+        if start:
+            self.start()
 
     def start(self):
         self._t_start = perf_counter_ns()

@@ -1,8 +1,7 @@
 import logging
-import locale
 import grequests
 
-from typing import Optional, Tuple, List, Iterable
+from typing import Optional, Tuple, List, Iterable, Dict
 from datetime import date, timedelta, datetime
 from requests import Response
 
@@ -65,6 +64,8 @@ class Ryanair:
         )
 
     def get_available_dates(self, destination: str) -> Tuple[str]:
+        trip = f"{self.origin.IATA_code}-{destination}"
+        logger.info(f"Getting available dates for {trip}")
         res = self.get(
             self._available_dates_url(self.origin.IATA_code, destination)
         )
@@ -72,6 +73,7 @@ class Ryanair:
         return res.json()
     
     def get_active_airports(self) -> Tuple[Airport, ...]:
+        logger.info(f"Getting Ryanair active airports")
         res = self.get(self._active_airports_url())
 
         return tuple(
@@ -92,6 +94,7 @@ class Ryanair:
         return res.json()
     
     def get_destination_codes(self) -> Tuple[str, ...]:
+        logger.info(f"Getting destinations for {self.origin.IATA_code}")
         res = self.get(
             self._destinations_url(self.origin.IATA_code)
         )
@@ -121,16 +124,18 @@ class Ryanair:
             if not_valid:
                 raise ValueError(f"Destinations {not_valid} not valid")
 
-        timer = Timer()
-        timer.start()
-        requests = self._prepare_search_requests(
-            from_date,
-            to_date,
-            destinations
-        )
-        responses = self._execute_search_requests(requests)
+        timer = Timer(start=True)
 
-        fares = self._compute_responses(responses, min_nights, max_nights)
+        fares = self._execute_and_compute(
+            code_requests_map=self._prepare_search_requests(
+                from_date,
+                to_date,
+                destinations
+            ),
+            min_nights=min_nights,
+            max_nights=max_nights
+        )
+
         timer.stop()
 
         logger.info(f"Scraped fares in {timer.seconds_elapsed()}s")
@@ -142,10 +147,11 @@ class Ryanair:
             from_date: date,
             to_date: date,
             destinations: Iterable[str]
-        ) -> List[grequests.AsyncRequest]:
+        ) -> Dict[str, List[grequests.AsyncRequest]]:
         
-        reqs = list()
+        requests = dict()
         for code in destinations:
+            reqs = list()
             str_dates = self.get_available_dates(code)
             
             if to_date is None:
@@ -165,20 +171,22 @@ class Ryanair:
                     dynamic_date,
                     dynamic_date,
                     flex_days
-                ).to_dict()
+                )
 
                 reqs.append(
                     grequests.get(
                         url=self._availabilty_url(),
-                        params=params,
+                        params=params.to_dict(),
                         session=self.sm.session
                     )
                 )
 
                 dynamic_date += timedelta(days=flex_days + 1)
                 self.sm.set_next_proxy()
+            
+            requests[code] = reqs
         
-        return reqs
+        return requests
 
     @staticmethod
     def _search_exec_handler(
@@ -188,6 +196,36 @@ class Ryanair:
 
         for arg in exception.args:
             logger.warning(arg)
+
+    def _execute_and_compute(
+            self,
+            code_requests_map: Dict[str, List[grequests.AsyncRequest]],
+            min_nights: int,
+            max_nights: int
+        ) -> List[Fare]:
+
+        fares, timer = list(), Timer()
+
+        for code, requests in code_requests_map.items():
+            timer.start()
+            responses = self._execute_search_requests(requests)
+
+            fares.extend(
+                self._compute_responses(
+                    responses=responses,
+                    min_nights=min_nights,
+                    max_nights=max_nights
+                )
+            )
+
+            timer.stop()
+
+            trip = f"{self.origin.IATA_code}-{code}"
+            logger.info(
+                f"{trip} scraped in {timer.seconds_elapsed()}s"
+            )
+
+        return fares
 
     def _execute_search_requests(
             self,
@@ -221,7 +259,7 @@ class Ryanair:
             else:
                 logger.warning(f"Request {res} is None")
                 continue
-        
+
         fares = []
         for trip_date_out in trips[0]['dates']:
             date_out = date.fromisoformat(trip_date_out['dateOut'][:10])
