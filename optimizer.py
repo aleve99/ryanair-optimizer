@@ -119,7 +119,7 @@ def main():
         max_nights=args.max_nights,
         from_date=args.from_date,
         to_date=args.to_date,
-        destinations=args.dests.split("|")
+        destinations=args.dests.split("|") if args.dests else []
     )
 
     df = pd.DataFrame(fares)
