@@ -5,9 +5,9 @@ from pathlib import Path
 from datetime import date
 from argparse import ArgumentError, ArgumentParser
 
-from src.ryanair import Ryanair
-from src.utils.config import parse_toml, parse_proxies
-from src.utils.args_check import check_paths
+from ryanair.ryanair import Ryanair  
+from ryanair.utils.config import parse_toml, parse_proxies
+from ryanair.utils.args_check import check_paths
 
 _CONFIG_DEFAULT_PATH_ = "config/config.toml"
 _PROXYLIST_DEFAULT_PATH_ = "config/proxy_list.txt"

@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import date, time, datetime
 from time import perf_counter_ns
 
-import src.utils as utils
+import ryanair.utils as utils
 
 config = utils.parse_toml("src/config.toml")
 
