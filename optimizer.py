@@ -7,7 +7,7 @@ from argparse import ArgumentError, ArgumentParser
 
 from ryanair.ryanair import Ryanair  
 from ryanair.utils.config import parse_toml, parse_proxies
-from ryanair.utils.args_check import check_paths
+from ryanair.utils.args_check import check_paths, check_positive
 
 _CONFIG_DEFAULT_PATH_ = "config/config.toml"
 _PROXYLIST_DEFAULT_PATH_ = "config/proxy_list.txt"
@@ -27,6 +27,12 @@ def main():
         help="The origin airport (IATA code)"
     )
     parser.add_argument(
+        "--max-nights",
+        required=True,
+        type=check_positive,
+        help="The maximum nights of vacation, must be >= 0"
+    )
+    parser.add_argument(
         "--dests",
         default=None,
         type=str,
@@ -41,14 +47,8 @@ def main():
     ref_arg_min_nights = parser.add_argument(
         "--min-nights",
         default=1,
-        type=int,
+        type=check_positive,
         help="The minimum nights of vacation, must be >= 0"
-    )
-    ref_arg_max_nights = parser.add_argument(
-        "--max-nights",
-        required=True,
-        type=int,
-        help="The maximum nights of vacation, must be >= 0"
     )
     parser.add_argument(
         "--from-date",
@@ -103,10 +103,8 @@ def main():
         USD=args.use_usd
     )
 
-    if args.min_nights < 0:
-        raise ArgumentError(ref_arg_min_nights, f"must be positive")
-    if args.max_nights < 0:
-        raise ArgumentError(ref_arg_max_nights, f"must be positive")
+    if args.min_nights > args.max_nights:
+        raise ArgumentError(ref_arg_min_nights, "must be less than --max-nights")
 
     if args.no_proxy:
         proxies = ({},)

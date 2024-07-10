@@ -134,6 +134,7 @@ class Ryanair:
         timer.stop()
 
         logger.info(f"Scraped fares in {timer.seconds_elapsed()}s")
+
         return fares
     
     def _prepare_search_requests(
@@ -147,7 +148,7 @@ class Ryanair:
         for code in destinations:
             str_dates = self.get_available_dates(code)
             
-            if not to_date:
+            if to_date is None:
                 to_date = date.fromisoformat(str_dates[-1])
 
             dynamic_date = from_date
