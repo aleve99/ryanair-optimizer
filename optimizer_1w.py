@@ -27,28 +27,10 @@ def main():
         help="The origin airport (IATA code)"
     )
     parser.add_argument(
-        "--max-nights",
-        required=True,
-        type=check_positive,
-        help="The maximum nights of vacation, must be >= 0"
-    )
-    parser.add_argument(
         "--dests",
         default=None,
         type=str,
         help="The destination airports (IATA code). If missing search across all destinations. Optional multiple ...|...|..."
-    )
-    parser.add_argument(
-        "--currency",
-        default=None,
-        type=str,
-        help=f"The currency symbol to display fares, default is using local currency. Supported currencies "
-    )
-    ref_arg_min_nights = parser.add_argument(
-        "--min-nights",
-        default=1,
-        type=check_positive,
-        help="The minimum nights of vacation, must be >= 0"
     )
     parser.add_argument(
         "--from-date",
@@ -106,9 +88,6 @@ def main():
         USD=args.use_usd
     )
 
-    if args.min_nights > args.max_nights:
-        raise ArgumentError(ref_arg_min_nights, "must be less than --max-nights")
-
     if args.no_proxy:
         proxies = ({},)
     else:
@@ -118,30 +97,19 @@ def main():
     ryanair.sm.pool_size = config['network']['pool_size']
     ryanair.sm.timeout = config['network']['timeout']
 
-    fares = ryanair.search_round_trip_fares(
-        min_nights=args.min_nights,
-        max_nights=args.max_nights,
+    fares = ryanair.search_one_way_fares(
         from_date=args.from_date,
         to_date=args.to_date,
         destinations=args.dests.split("|") if args.dests else []
     )
 
     df = pd.DataFrame(fares)
-    if not df.empty:
-        df['round_trip_fare'] = (df["outbound_fare"] + df["return_fare"]).round(
-            decimals=2
-        )
-        
+    if not df.empty:        
         df = df.sort_values(
-            by="round_trip_fare", ascending=True
+            by="outbound_fare", ascending=True
         ).reset_index(drop=True)
-
-        columns = df.columns.to_list()
-        df = df[columns[:-2] + [df.columns[-1], df.columns[-2]]]
     
     print(df)
-
-    df.to_csv("fares.csv", index=False)
 
 if __name__ == "__main__":
     main()
