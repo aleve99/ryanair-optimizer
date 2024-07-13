@@ -7,7 +7,7 @@ from requests import Response
 
 from .session_manager import SessionManager
 from .payload import AvailabilityPayload, get_availabilty_payload
-from .types import Airport, Fare
+from .types import Airport, OneWayFare, RoundTripFare
 from .utils.timer import Timer
 from .utils.args_check import check_destinations
 
@@ -115,7 +115,7 @@ class Ryanair:
             from_date: date,
             to_date: date = None,
             destinations: Iterable[str] = []
-        ) -> List[Fare]:
+        ) -> List[RoundTripFare]:
         
         destinations = check_destinations(destinations, self.destinations)
 
@@ -123,9 +123,9 @@ class Ryanair:
 
         fares = self._execute_and_compute(
             code_requests_map=self._prepare_search_requests(
-                from_date,
-                to_date,
-                destinations
+                from_date=from_date,
+                to_date=to_date,
+                destinations=destinations
             ),
             min_nights=min_nights,
             max_nights=max_nights
@@ -133,7 +133,7 @@ class Ryanair:
 
         timer.stop()
 
-        logger.info(f"Scraped fares in {timer.seconds_elapsed()}s")
+        logger.info(f"Scraped round-trip fares in {timer.seconds_elapsed()}s")
 
         return fares
     
@@ -142,9 +142,48 @@ class Ryanair:
             from_date: date,
             to_date: date = None,
             destinations: Iterable[str] = []
-        ) -> List[Fare]:
-        pass
+        ) -> List[OneWayFare]:
+        
+        destinations = check_destinations(destinations, self.destinations)
+        
+        timer = Timer(start=True)
 
+        code_requests_map = self._prepare_search_requests(
+            from_date=from_date,
+            to_date=to_date,
+            destinations=destinations,
+            round_trip=False
+        )
+        
+        fares = []
+        for dest, requests in code_requests_map.items():
+            reponses = self._execute_search_requests(requests)
+
+            for res in reponses:
+                json_res = res.json()
+                currency = json_res['currency']
+
+                for date in json_res['trips'][0]['dates']:
+                    for flight in filter(
+                        lambda fl: fl['faresLeft'] != 0, date['flights']
+                    ):
+                        fares.append(
+                            OneWayFare(
+                                datetime.fromisoformat(flight['time'][0]),
+                                datetime.fromisoformat(flight['time'][1]),
+                                self.origin.IATA_code,
+                                dest,
+                                flight['regularFare']['fares'][0]['amount'],
+                                flight['faresLeft'],
+                                currency
+                            )
+                        )
+
+        timer.stop()
+
+        logger.info(f"Scraped one-way fares in {timer.seconds_elapsed()}s")
+
+        return fares
 
     def _prepare_search_requests(
             self,
@@ -222,7 +261,7 @@ class Ryanair:
             code_requests_map: Dict[str, List[grequests.AsyncRequest]],
             min_nights: int,
             max_nights: int
-        ) -> List[Fare]:
+        ) -> List[RoundTripFare]:
 
         fares, timer = list(), Timer()
 
@@ -263,7 +302,7 @@ class Ryanair:
             responses: List[Response],
             min_nights: int,
             max_nights: int
-        ) -> List[Fare]:
+        ) -> List[RoundTripFare]:
 
         for req_num, res in enumerate(responses):
             if res and req_num == 0:
@@ -285,22 +324,35 @@ class Ryanair:
             date_out = date.fromisoformat(trip_date_out['dateOut'][:10])
 
             for outbound_flight in trip_date_out['flights']:
+
                 if outbound_flight['faresLeft'] != 0:
                     for i in range(len(trips[1]['dates'])):
                         trip_date_in = trips[1]['dates'][i]
-                        date_in = date.fromisoformat(trip_date_in['dateOut'][:10])
+                        
+                        date_in = date.fromisoformat(
+                            trip_date_in['dateOut'][:10]
+                        )
 
                         if date_in < date_out:
                             i = (date_out - date_in).days
                             continue
                         elif min_nights <= (date_in - date_out).days <= max_nights:
                             for return_flight in trip_date_in['flights']:
+
                                 if return_flight['faresLeft'] != 0:
-                                    fares.append(Fare(
-                                        datetime.fromisoformat(outbound_flight['time'][0]),
-                                        datetime.fromisoformat(outbound_flight['time'][1]),
-                                        datetime.fromisoformat(return_flight['time'][0]),
-                                        datetime.fromisoformat(return_flight['time'][1]),
+                                    fares.append(RoundTripFare(
+                                        datetime.fromisoformat(
+                                            outbound_flight['time'][0]
+                                        ),
+                                        datetime.fromisoformat(
+                                            outbound_flight['time'][1]
+                                        ),
+                                        datetime.fromisoformat(
+                                            return_flight['time'][0]
+                                        ),
+                                        datetime.fromisoformat(
+                                            return_flight['time'][1]
+                                        ),
                                         trips[0]['origin'],
                                         trips[0]['destination'],
                                         outbound_flight['regularFare']['fares'][0]['amount'],

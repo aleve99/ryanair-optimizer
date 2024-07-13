@@ -137,7 +137,7 @@ def main():
         ).reset_index(drop=True)
 
         columns = df.columns.to_list()
-        df = df[columns[:-3] + [df.columns[-1], df.columns[-2]]]
+        df = df[columns[:-2] + [df.columns[-1], df.columns[-2]]]
     
     print(df)
 

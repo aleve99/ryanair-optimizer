@@ -10,7 +10,7 @@ class Airport:
     location: Optional[str]
 
 @dataclass
-class Fare:
+class RoundTripFare:
     outbound_dep_time: datetime
     outbound_arr_time: datetime
     return_dep_time: datetime
@@ -21,4 +21,14 @@ class Fare:
     outbound_left: int
     return_fare: float
     return_left: int
+    currency: str
+
+@dataclass
+class OneWayFare:
+    outbound_dep_time: datetime
+    outbound_arr_time: datetime
+    origin: str
+    destination: str
+    outbound_fare: float
+    outbound_left: int
     currency: str
