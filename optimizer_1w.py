@@ -98,10 +98,10 @@ def main():
     ryanair.sm.timeout = config['network']['timeout']
 
     fares = ryanair.search_one_way_fares(
-        from_date=args.from_date,
-        to_date=args.to_date,
-        destinations=args.dests.split("|") if args.dests else []
-    )
+            from_date=args.from_date,
+            to_date=args.to_date,
+            destinations=args.dests.split("|") if args.dests else []
+        )
 
     df = pd.DataFrame(fares)
     if not df.empty:        

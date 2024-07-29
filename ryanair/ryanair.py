@@ -1,7 +1,7 @@
 import logging
 import grequests
 
-from typing import Optional, Tuple, List, Iterable, Dict
+from typing import Optional, Tuple, List, Iterable, Dict, Union 
 from datetime import date, timedelta, datetime
 from requests import Response
 
@@ -38,19 +38,29 @@ class Ryanair:
 
         self.active_airports = self.get_active_airports()
         self.origin = origin
-        self.destinations = self.get_destination_codes()
 
     @property
     def origin(self) -> Airport:
         return self._origin
 
     @origin.setter
-    def origin(self, iata_code: str):
+    def origin(self, airport: Union[str, Airport]):
+        if isinstance(airport, str):
+            iata_code = airport
+        elif isinstance(airport, Airport):
+            iata_code = airport.IATA_code
+        else:
+            raise TypeError(f"{type(airport)} not <str> or <Airport>")
+        
         if not any(el.IATA_code == iata_code for el in self.active_airports):
             raise ValueError(f"IATA code {iata_code} not valid")
-    
-        self._origin = self.get_airport(iata_code)
         
+        if isinstance(airport, str):
+            self._origin = self.get_airport(iata_code)
+        else:
+            self._origin = airport
+        self.destinations = self.get_destination_codes()
+
     def get(self, url: str, **kwargs) -> Response:
         res = self.sm.session.get(
             url, 
@@ -200,6 +210,8 @@ class Ryanair:
             if to_date is None:
                 str_dates = self.get_available_dates(code)
                 _to_date = date.fromisoformat(str_dates[-1])
+            else:
+                _to_date = to_date
 
             _from_date = from_date
             
