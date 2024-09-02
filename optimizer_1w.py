@@ -111,5 +111,10 @@ def main():
     
     print(df)
 
+    df.to_csv(
+        f"fares_{args.origin}_one_way.csv",
+        index=False
+    )
+
 if __name__ == "__main__":
     main()

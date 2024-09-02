@@ -112,12 +112,14 @@ def main():
     ryanair.sm.pool_size = config['network']['pool_size']
     ryanair.sm.timeout = config['network']['timeout']
 
+    dests = args.dests.split("|") if args.dests else []
+
     fares = ryanair.search_round_trip_fares(
         min_nights=args.min_nights,
         max_nights=args.max_nights,
         from_date=args.from_date,
         to_date=args.to_date,
-        destinations=args.dests.split("|") if args.dests else []
+        destinations=dests
     )
 
     df = pd.DataFrame(fares)
@@ -135,7 +137,10 @@ def main():
     
     print(df)
 
-    df.to_csv("fares.csv", index=False)
+    df.to_csv(
+        f"fares_{args.origin}_{'_'.join(dests) if dests else 'ALL'}_round_trip.csv",
+        index=False
+    )
 
 if __name__ == "__main__":
     main()

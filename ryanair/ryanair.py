@@ -198,7 +198,7 @@ class Ryanair:
     def _prepare_search_requests(
             self,
             from_date: date,
-            to_date: date,
+            to_date: 'date | None',
             destinations: Iterable[str],
             round_trip: bool = True
         ) -> Dict[str, List[grequests.AsyncRequest]]:
@@ -281,13 +281,14 @@ class Ryanair:
             timer.start()
             responses = self._execute_search_requests(requests)
 
-            fares.extend(
-                self._compute_responses(
-                    responses=responses,
-                    min_nights=min_nights,
-                    max_nights=max_nights
+            if responses:
+                fares.extend(
+                    self._compute_responses(
+                        responses=responses,
+                        min_nights=min_nights,
+                        max_nights=max_nights
+                    )
                 )
-            )
 
             timer.stop()
 
