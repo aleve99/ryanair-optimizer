@@ -165,7 +165,8 @@ def main():
                 values=list(df.columns),
                 fill_color='midnightblue',
                 font=dict(color='lightgray'),
-                align='left'),
+                align='left'
+            ),
             cells=dict(
                 values=[df[col] for col in df.columns],
                 fill_color=[['lightsteelblue' if i % 2 == 0 else 'aliceblue' for i in range(len(df))] * len(df.columns)],
@@ -173,6 +174,14 @@ def main():
             )
         )]
     )
+
+
+    fig.update_layout(
+        title="Ryanair fares ✈️",
+        title_x=0.5,
+        title_font_size=24
+    )
+
     fig.write_html(dir / "fares.html")
 
     logger.info(f"Fares saved to {dir.absolute()}")

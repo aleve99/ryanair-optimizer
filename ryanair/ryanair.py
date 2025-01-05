@@ -16,6 +16,7 @@ logger = logging.getLogger("ryanair")
 class Ryanair:
     BASE_API_URL = "https://www.ryanair.com/api/"
     SERVICES_API_URL = "https://services-api.ryanair.com/"
+    FLIGHT_PAGE_URL = "https://www.ryanair.com/en/us/trip/flights/select"
     FLEX_DAYS = 6
 
     def __init__(
@@ -99,6 +100,48 @@ class Ryanair:
                 airport['name']
             ) for airport in res.json()
         )
+
+    def get_round_trip_link(
+            self,
+            from_date: date,
+            to_date: date,
+            destination: str
+        ) -> str:
+        return self.FLIGHT_PAGE_URL + f"?" + \
+            "&".join([
+                "adults=1",
+                "teens=0",
+                "children=0",
+                "infants=0",
+                f"dateOut={from_date}",
+                f"dateIn={to_date}",
+                "isConnectedFlight=false",
+                "discount=0",
+                "promoCode=",
+                "isReturn=true",
+                f"originIata={self.origin.IATA_code}",
+                f"destinationIata={destination}"
+            ])
+    
+    def get_one_way_link(
+            self,
+            from_date: date,
+            destination: str
+        ) -> str:
+        return self.FLIGHT_PAGE_URL + "?" + \
+            "&".join([
+                "adults=1",
+                "teens=0",
+                "children=0",
+                "infants=0",
+                f"dateOut={from_date}",
+                "isConnectedFlight=false",
+                "discount=0",
+                "promoCode=",
+                "isReturn=false",
+                f"originIata={self.origin.IATA_code}",
+                f"destinationIata={destination}"
+            ])
 
     def get_availability(self, payload: AvailabilityPayload) -> dict:
         res = self.get(

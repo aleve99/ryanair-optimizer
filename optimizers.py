@@ -19,6 +19,9 @@ class Handler(SimpleHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
 
+def make_clickable(val):
+    return f'<a href="{val}">link</a>'
+
 def run_server(port: int, dir: Path = Path(".")):
     server_address = ('', port)
     handler = lambda *args, **kwargs: Handler(directory=dir, *args, **kwargs)
@@ -69,9 +72,18 @@ def optimizer_1w(
         df = df.sort_values(
             by="outbound_fare", ascending=True
         ).reset_index(drop=True)
+        
+        df['link'] = df.apply(
+            lambda row: ryanair.get_one_way_link(
+                from_date=row['outbound_dep_time'].date(),
+                destination=row['destination']
+            ),
+            axis=1
+        )
+
+        df['link'] = df['link'].apply(make_clickable)
     
     return df
-
 
 def optimizer_rt(
         origin: str,
@@ -128,5 +140,16 @@ def optimizer_rt(
 
         columns = df.columns.to_list()
         df = df[columns[:-2] + [df.columns[-1], df.columns[-2]]]
+        
+        df['link'] = df.apply(
+            lambda row: ryanair.get_round_trip_link(
+                from_date=row['outbound_dep_time'].date(),
+                to_date=row['return_dep_time'].date(),
+                destination=row['destination']
+            ),
+            axis=1
+        )
+
+        df['link'] = df['link'].apply(make_clickable)
     
     return df
