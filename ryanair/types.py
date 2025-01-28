@@ -1,15 +1,16 @@
-from dataclasses import dataclass
-from typing import Optional
-from datetime import datetime
+from dataclasses import dataclass, asdict
+from typing import Optional, List
+from datetime import datetime, timedelta
 
-@dataclass
+
+@dataclass(frozen=True, eq=True)
 class Airport:
     IATA_code: str
     lat: Optional[float]
     lng: Optional[float]
     location: Optional[str]
 
-@dataclass
+@dataclass(eq=True)
 class RoundTripFare:
     outbound_dep_time: datetime
     outbound_arr_time: datetime
@@ -23,12 +24,35 @@ class RoundTripFare:
     return_left: int
     currency: str
 
-@dataclass
+@dataclass(eq=True)
 class OneWayFare:
-    outbound_dep_time: datetime
-    outbound_arr_time: datetime
+    dep_time: datetime
+    arr_time: datetime
     origin: str
     destination: str
-    outbound_fare: float
-    outbound_left: int
+    fare: float
+    left: int
     currency: str
+
+    def to_dict(self):
+        return asdict(self)
+
+@dataclass(eq=True)
+class Schedule:
+    origin: str
+    destination: str
+    departure_time: datetime
+    arrival_time: datetime
+    flight_number: str
+
+@dataclass(eq=True)
+class Stay:
+    location: str
+    duration: timedelta
+
+@dataclass(eq=True)
+class Trip:
+    flights: List[OneWayFare]
+    total_cost: float
+    total_duration: timedelta
+    stays: List[Stay]

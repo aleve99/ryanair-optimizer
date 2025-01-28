@@ -5,28 +5,16 @@ from typing import List
 from pathlib import Path
 from datetime import date
 
-from ryanair.ryanair import Ryanair  
-from ryanair.utils.config import parse_toml, parse_proxies
-from http.server import SimpleHTTPRequestHandler, HTTPServer
+from ryanair.ryanair import Ryanair
+from ryanair.utils.config import parse_proxies
+from ryanair.utils.server import make_clickable
+from ryanair.utils.multitrip import get_reachable_graph, get_reachable_fares, \
+                                    preprocess_graph, find_multi_city_trips, \
+                                    load_reachable_fares, save_reachable_fares, \
+                                    load_trips, save_trips, save_airports
 
 
 logger = logging.getLogger("ryanair")
-
-class Handler(SimpleHTTPRequestHandler):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, directory=kwargs.pop('directory'), **kwargs)
-
-    def log_message(self, format, *args):
-        pass
-
-def make_clickable(val):
-    return f'<a href="{val}">link</a>'
-
-def run_server(port: int, dir: Path = Path(".")):
-    server_address = ('', port)
-    handler = lambda *args, **kwargs: Handler(directory=dir, *args, **kwargs)
-    httpd = HTTPServer(server_address, handler)
-    httpd.serve_forever()
 
 def optimizer_1w(
         origin: str,
@@ -42,12 +30,8 @@ def optimizer_1w(
     logger.info(f"Using config path: {config_path.absolute()}")
     logger.info(f"Using proxies path: {proxy_path.absolute()}")
 
-    config = parse_toml(config_path)
-
     ryanair = Ryanair(
-        rid=config['cookies']['rid'],
-        ridsig=config["cookies"]["rid.sig"],
-        origin=origin,
+        config_path=config_path,
         USD=use_usd
     )
 
@@ -57,10 +41,10 @@ def optimizer_1w(
         proxies = parse_proxies(proxy_path)
         ryanair.sm.extend_proxies_pool(proxies)
 
-    ryanair.sm.pool_size = config['network']['pool_size']
-    ryanair.sm.timeout = config['network']['timeout']
+    airport = ryanair.get_airport(origin)
 
-    fares = ryanair.search_one_way_fares(
+    fares = ryanair.search_one_way_fares_v2(
+            origin=airport.IATA_code,
             from_date=from_date,
             to_date=to_date,
             destinations=dests
@@ -76,6 +60,7 @@ def optimizer_1w(
         df['link'] = df.apply(
             lambda row: ryanair.get_one_way_link(
                 from_date=row['outbound_dep_time'].date(),
+                origin=row['origin'],
                 destination=row['destination']
             ),
             axis=1
@@ -101,12 +86,8 @@ def optimizer_rt(
     logger.info(f"Using config path: {config_path.absolute()}")
     logger.info(f"Using proxies path: {proxy_path.absolute()}")
 
-    config = parse_toml(config_path)
-
     ryanair = Ryanair(
-        rid=config['cookies']['rid'],
-        ridsig=config["cookies"]["rid.sig"],
-        origin=origin,
+        config_path=config_path,
         USD=use_usd
     )
 
@@ -116,10 +97,10 @@ def optimizer_rt(
         proxies = parse_proxies(proxy_path)
         ryanair.sm.extend_proxies_pool(proxies)
 
-    ryanair.sm.pool_size = config['network']['pool_size']
-    ryanair.sm.timeout = config['network']['timeout']
+    airport = ryanair.get_airport(origin)
 
     fares = ryanair.search_round_trip_fares(
+        origin=airport.IATA_code,
         min_nights=min_nights,
         max_nights=max_nights,
         from_date=from_date,
@@ -145,6 +126,7 @@ def optimizer_rt(
             lambda row: ryanair.get_round_trip_link(
                 from_date=row['outbound_dep_time'].date(),
                 to_date=row['return_dep_time'].date(),
+                origin=row['origin'],
                 destination=row['destination']
             ),
             axis=1
@@ -153,3 +135,87 @@ def optimizer_rt(
         df['link'] = df['link'].apply(make_clickable)
     
     return df
+
+def optimizer_multi_trip(
+        origin: str,
+        from_date: date,
+        to_date: date,
+        dests: List[str],
+        config_path: Path,
+        proxy_path: Path,
+        use_usd: bool,
+        no_proxy: bool,
+        cutoff: int,
+        max_price: float,
+        min_nights: int = 0,
+        max_nights: int = 7,
+        data_path: Path = Path("data")
+    ) -> None:
+    
+    if not data_path.exists():
+        data_path.mkdir(parents=True)
+    if min_nights is None or max_nights is None:
+        raise ValueError("min_nights and max_nights must be provided")
+
+    logger.info(f"Using config path: {config_path.absolute()}")
+    logger.info(f"Using proxies path: {proxy_path.absolute()}")
+
+    ryanair = Ryanair(
+        config_path=config_path,
+        USD=use_usd
+    )
+
+    if no_proxy:
+        proxies = ({},)
+    else:
+        proxies = parse_proxies(proxy_path)
+        ryanair.sm.extend_proxies_pool(proxies)
+    
+    logger.info("Getting reachable fares")
+    
+    if (data_path / "fares.csv").exists():
+        logger.info("Loading fares from CSV")
+        fares_node_map = load_reachable_fares(data_path)
+    else:
+        fares_node_map = get_reachable_fares(
+            ryanair, origin, dests, from_date, to_date, cutoff
+        )
+    
+        logger.info("Saving fares to CSV")
+        save_reachable_fares(fares_node_map, data_path / "fares.csv")
+    
+
+    logger.info("Getting reachable graph")
+    reachable_graph = get_reachable_graph(origin, fares_node_map)
+    
+    logger.info("Preprocessing graph")
+    reachable_graph = preprocess_graph(reachable_graph, max_price)
+    
+
+    if {"trips.csv", "stays.csv", "summary.csv"}.issubset(file.name for file in Path(data_path).iterdir()):
+        logger.info("Loading trips from CSV")
+        trips = load_trips(data_path)
+        logger.info(f"Loaded {len(trips)} trips")
+    else:
+        logger.info("Finding multi-city trips")
+        trips = find_multi_city_trips(
+            reachable_graph,
+            origin,
+            min_nights,
+            max_nights,
+            cutoff
+        )
+
+        logger.info("Sorting trips per total cost")
+        trips.sort(key=lambda trip: trip.total_cost)
+
+        logger.info("Saving trips to CSV")
+        save_trips(trips, data_path)
+
+    
+    if not (data_path / "airports.csv").exists():
+        logger.info("Saving airports to CSV")
+        save_airports(ryanair, trips, data_path)
+    
+    logger.info("All done! Data is ready to be used.")
+    logger.info(f"Data is saved in {data_path.absolute()}")

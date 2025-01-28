@@ -2,10 +2,10 @@ import logging
 from argparse import ArgumentParser, ArgumentError
 from datetime import date
 from pathlib import Path
-from plotly.graph_objects import Figure, Table
 
-from optimizers import optimizer_1w, optimizer_rt, run_server
+from optimizers import optimizer_1w, optimizer_rt, optimizer_multi_trip
 from ryanair.utils.args_check import check_positive, check_paths
+from ryanair.utils.server import serve_table
 
 _CONFIG_DEFAULT_PATH_ = Path("config/config.toml")
 _PROXYLIST_DEFAULT_PATH_ = Path("config/proxy_list.txt")
@@ -97,6 +97,28 @@ def main():
         action='store_true',
         help="Serve the fares in a web server"
     )
+
+    parser.add_argument(
+        "--multi-trip",
+        default=False,
+        action='store_true',
+        help="Use multi-trip optimizer"
+    )
+
+    parser.add_argument(
+        "--cutoff",
+        default=4,
+        type=check_positive,
+        help="The maximum number of flights in a multi-trip"
+    )
+
+    parser.add_argument(
+        "--max-price",
+        default=30,
+        type=check_positive,
+        help="The maximum price for a flight, must be >= 0"
+    )
+
     args = parser.parse_args()
 
     check_paths(
@@ -125,7 +147,7 @@ def main():
     
     dests = args.dests.split("|") if args.dests else []
 
-    if one_way:
+    if one_way and not args.multi_trip:
         df = optimizer_1w(
             origin=args.origin,
             from_date=args.from_date,
@@ -136,7 +158,7 @@ def main():
             use_usd=args.use_usd,
             no_proxy=args.no_proxy
         )
-    else:
+    elif not one_way and not args.multi_trip:
         df = optimizer_rt(
             origin=args.origin,
             from_date=args.from_date,
@@ -149,9 +171,32 @@ def main():
             use_usd=args.use_usd,
             no_proxy=args.no_proxy
         )
+    else:
+        optimizer_multi_trip(
+            origin=args.origin,
+            from_date=args.from_date,
+            to_date=args.to_date,
+            min_nights=args.min_nights,
+            max_nights=args.max_nights,
+            dests=dests,
+            config_path=args.config_path,
+            proxy_path=args.proxy_path,
+            use_usd=args.use_usd,
+            no_proxy=args.no_proxy,
+            cutoff=args.cutoff,
+            max_price=args.max_price
+        )
+        return
     
+    if df.empty:
+        logger.info("No valid trips found")
+        return
+
+    filename = f"fares_{args.origin}_" \
+               f"{'_'.join(dests) if dests else 'ALL'}_" \
+                'one_way' if one_way else 'round_trip'
     
-    dir = _FARES_DIR_ / f"fares_{args.origin}_{'_'.join(dests) if dests else 'ALL'}_{'one_way' if one_way else 'round_trip'}"
+    dir = _FARES_DIR_ / filename
     dir.mkdir(exist_ok=True)
 
     df.to_csv(
@@ -159,40 +204,7 @@ def main():
         index=False
     )
 
-    fig = Figure(
-        data=[Table(
-            header=dict(
-                values=list(df.columns),
-                fill_color='midnightblue',
-                font=dict(color='lightgray'),
-                align='left'
-            ),
-            cells=dict(
-                values=[df[col] for col in df.columns],
-                fill_color=[['lightsteelblue' if i % 2 == 0 else 'aliceblue' for i in range(len(df))] * len(df.columns)],
-                align='left'
-            )
-        )]
-    )
-
-
-    fig.update_layout(
-        title="Ryanair fares ✈️",
-        title_x=0.5,
-        title_font_size=24
-    )
-
-    fig.write_html(dir / "fares.html")
-
-    logger.info(f"Fares saved to {dir.absolute()}")
-
-    if args.serve_html:
-        logger.info(f"Serving fares at http://localhost:8080/fares.html")
-        logger.info("Press Ctrl+C to stop")
-        try:
-            run_server(8080, dir)
-        except KeyboardInterrupt:
-            logger.info("Server stopped")
+    serve_table(df, dir)
 
 if __name__ == "__main__":
     main()

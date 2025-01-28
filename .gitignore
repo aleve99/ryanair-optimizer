@@ -1,5 +1,6 @@
 # Files
 fares/
+data/
 *.toml
 *.csv
 *.txt

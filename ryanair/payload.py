@@ -83,3 +83,23 @@ def get_availabilty_payload(
         FlexDaysOut=flex_days,
         RoundTrip=round_trip
     )
+
+def get_farfnd_one_way_payload(
+        origin: str,
+        destinations: str,
+        date_from: date,
+        date_to: date,
+        time_from: time,
+        time_to: time,
+        market: str
+    ) -> FarfndOneWayPayload:
+
+    return FarfndOneWayPayload(
+        departureAirportIataCode=origin,
+        outboundDepartureDateFrom=date_from,
+        outboundDepartureDateTo=date_to,
+        outboundDepartureTimeFrom=time_from,
+        outboundDepartureTimeTo=time_to,
+        arrivalAirportIataCodes=','.join(destinations),
+        market=market
+    )
