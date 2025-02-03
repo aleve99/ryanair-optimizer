@@ -1,6 +1,7 @@
 import networkx as nx
 import multiprocessing as mp
 import pandas as pd
+import csv
 
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -34,18 +35,17 @@ def save_airports(
         for flight in trip.flights:
             codes.add(flight.origin)
 
-    data = []
-    for code in codes:
-        airport = ryanair.get_airport(code)
-        data.append({
-            'code': airport.IATA_code,
-            'location': airport.location,
-            'lng': airport.lng,
-            'lat': airport.lat
-        })
-    
-    df = pd.DataFrame(data)
-    df.to_csv(path / filename, index=False)
+    with open(path / filename, mode='w', newline='') as file:
+        writer = csv.DictWriter(file, fieldnames=['code', 'location', 'lng', 'lat'])
+        writer.writeheader()
+        for code in codes:
+            airport = ryanair.get_airport(code)
+            writer.writerow({
+                'code': airport.IATA_code,
+                'location': airport.location,
+                'lng': airport.lng,
+                'lat': airport.lat
+            })
 
 def load_trips(
         path: Path,
@@ -125,43 +125,50 @@ def save_trips(
         filename_summary: str = "summary.csv",
         filename_stays: str = "stays.csv"
     ):
-    _summary = []
-    _trips = []
-    _stays = []
 
-    for i, trip in enumerate(trips):
-        _summary.append({
-            "trip_id": i,
-            "total_cost": round(trip.total_cost, 2),
-            "total_duration": trip.total_duration,
-            "num_flights": len(trip.flights),
-            "departure_time": trip.flights[0].dep_time,
-            "return_time": trip.flights[-1].arr_time,
-            "route": '-'.join(flight.origin for flight in trip.flights) + f'-{trip.flights[-1].destination}',
-        })
-
-        for j, stay in enumerate(trip.stays):
-            _stays.append({
+    with open(path / filename_summary, mode='w', newline='') as file_summary:
+        writer = csv.DictWriter(file_summary, fieldnames=[
+            "trip_id", "total_cost", "total_duration", "num_flights",
+            "departure_time", "return_time", "route"
+        ])
+        writer.writeheader()
+        for i, trip in enumerate(trips):
+            writer.writerow({
                 "trip_id": i,
-                "position": j,
-                "location": stay.location,
-                "duration": stay.duration
+                "total_cost": round(trip.total_cost, 2),
+                "total_duration": trip.total_duration,
+                "num_flights": len(trip.flights),
+                "departure_time": trip.flights[0].dep_time,
+                "return_time": trip.flights[-1].arr_time,
+                "route": '-'.join(flight.origin for flight in trip.flights) + f'-{trip.flights[-1].destination}',
             })
 
-        for j, flight in enumerate(trip.flights):
-            _trips.append({
-                "trip_id": i,
-                "position": j,
-                "key": get_flight_key(flight),
-            })
+    with open(path / filename_stays, mode='w', newline='') as file_stays:
+        writer = csv.DictWriter(file_stays, fieldnames=[
+            "trip_id", "position", "location", "duration"
+        ])
+        writer.writeheader()
+        for i, trip in enumerate(trips):
+            for j, stay in enumerate(trip.stays):
+                writer.writerow({
+                    "trip_id": i,
+                    "position": j,
+                    "location": stay.location,
+                    "duration": stay.duration
+                })
 
-    df_summary = pd.DataFrame(_summary)
-    df_trips = pd.DataFrame(_trips)
-    df_stays = pd.DataFrame(_stays)
-
-    df_summary.to_csv(path / filename_summary, index=False)
-    df_trips.to_csv(path / filename_trips, index=False)
-    df_stays.to_csv(path / filename_stays, index=False)
+    with open(path / filename_trips, mode='w', newline='') as file_trips:
+        writer = csv.DictWriter(file_trips, fieldnames=[
+            "trip_id", "position", "key"
+        ])
+        writer.writeheader()
+        for i, trip in enumerate(trips):
+            for j, flight in enumerate(trip.flights):
+                writer.writerow({
+                    "trip_id": i,
+                    "position": j,
+                    "key": get_flight_key(flight),
+                })
 
 def load_reachable_fares(
         path: Path,
@@ -194,13 +201,16 @@ def save_reachable_fares(
         path: Path
     ):
 
-    df = pd.DataFrame(
-        {**fare.to_dict(), 'key': get_flight_key(fare)} 
-        for fares in fares_node_map.values() 
-        for fare in fares
-    )
-    
-    df.to_csv(path, index=False)
+    with open(path, mode='w', newline='') as file:
+        writer = csv.DictWriter(file, fieldnames=[
+            "dep_time", "arr_time", "origin", "destination", "fare", "left", "currency", "key"
+        ])
+        writer.writeheader()
+        for fares in fares_node_map.values():
+            for fare in fares:
+                row = fare.to_dict()
+                row['key'] = get_flight_key(fare)
+                writer.writerow(row)
 
 PARALLEL_FACTOR = 3
 def get_reachable_fares(
