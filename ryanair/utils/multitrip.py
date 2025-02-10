@@ -337,8 +337,7 @@ def get_reachable_fares(
         int(mp.cpu_count() * PARALLEL_FACTOR),
         len(destinations.keys())
     )
-    print(destinations)
-    input()
+    
     logger.info(f"Using {processes} processes to get fares")
     with mp.Pool(processes) as pool:
         fares = pool.starmap(
