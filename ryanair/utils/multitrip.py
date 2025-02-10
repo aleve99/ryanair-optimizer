@@ -348,6 +348,8 @@ def get_reachable_fares(
             )
         )
 
+    fares = [set(fare) for fare in fares] #TODO: Better check for duplicates ahead
+
     return {
         node: {dest: list(filter(lambda fare: fare.destination == dest, fares[i])) for dest in destinations[node]}
         for i, node in enumerate(destinations.keys())

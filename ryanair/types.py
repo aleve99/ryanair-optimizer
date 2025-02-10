@@ -10,7 +10,7 @@ class Airport:
     lng: Optional[float]
     location: Optional[str]
 
-@dataclass(eq=True)
+@dataclass(eq=True, frozen=True)
 class RoundTripFare:
     outbound_dep_time: datetime
     outbound_arr_time: datetime
@@ -24,7 +24,7 @@ class RoundTripFare:
     return_left: int
     currency: str
 
-@dataclass(eq=True)
+@dataclass(eq=True, frozen=True)
 class OneWayFare:
     dep_time: datetime
     arr_time: datetime
@@ -37,7 +37,7 @@ class OneWayFare:
     def to_dict(self):
         return asdict(self)
 
-@dataclass(eq=True)
+@dataclass(eq=True, frozen=True)
 class Schedule:
     origin: str
     destination: str
@@ -45,12 +45,12 @@ class Schedule:
     arrival_time: datetime
     flight_number: str
 
-@dataclass(eq=True)
+@dataclass(eq=True, frozen=True)
 class Stay:
     location: str
     duration: timedelta
 
-@dataclass(eq=True)
+@dataclass(eq=True, frozen=True)
 class Trip:
     flights: List[OneWayFare]
     total_cost: float

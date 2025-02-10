@@ -46,11 +46,11 @@ def optimizer_1w(
     airport = ryanair.get_airport(origin)
 
     fares = ryanair.search_one_way_fares_v2(
-            origin=airport.IATA_code,
-            from_date=from_date,
-            to_date=to_date,
-            destinations=dests
-        )
+        origin=airport.IATA_code,
+        from_date=from_date,
+        to_date=to_date,
+        destinations=dests
+    )
 
     df = pd.DataFrame(fares)
     
