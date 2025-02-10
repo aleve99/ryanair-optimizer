@@ -17,6 +17,15 @@ logger = logging.getLogger("ryanair")
 def get_flight_key(flight: OneWayFare) -> str:
     return f"{flight.origin}-{flight.dep_time}:{flight.destination}-{flight.arr_time}"
 
+def preprocess_fares(fares_node_map: Dict[str, Dict[str, List[OneWayFare]]], max_price: float):
+    return {
+        origin: {
+            dest: [fare for fare in fares if fare.fare <= max_price]
+            for dest, fares in fares_by_dest.items()
+        }
+        for origin, fares_by_dest in fares_node_map.items()
+    }
+
 def preprocess_graph(graph: nx.MultiDiGraph, max_price: float):
     edges_to_remove = [(u, v, k) for u, v, k, data in graph.edges(data=True, keys=True) if data['weight'] > max_price]
     graph.remove_edges_from(edges_to_remove)
@@ -173,7 +182,7 @@ def save_trips(
 def load_reachable_fares(
         path: Path,
         filename: str = "fares.csv"
-    ) -> Dict[str, List[OneWayFare]]:
+    ) -> Dict[str, Dict[str, List[OneWayFare]]]:
     
     df = pd.read_csv(path / filename)
     fares_node_map = {}
@@ -190,14 +199,17 @@ def load_reachable_fares(
         )
         
         if element.origin in fares_node_map:
-            fares_node_map[element.origin].append(element)
+            if element.destination in fares_node_map[element.origin]:
+                fares_node_map[element.origin][element.destination].append(element)
+            else:
+                fares_node_map[element.origin][element.destination] = [element]
         else:
-            fares_node_map[element.origin] = [element]
+            fares_node_map[element.origin] = {element.destination: [element]}
 
     return fares_node_map
 
 def save_reachable_fares(
-        fares_node_map: Dict[str, List[OneWayFare]],
+        fares_node_map: Dict[str, Dict[str, List[OneWayFare]]],
         path: Path
     ):
 
@@ -206,23 +218,50 @@ def save_reachable_fares(
             "dep_time", "arr_time", "origin", "destination", "fare", "left", "currency", "key"
         ])
         writer.writeheader()
-        for fares in fares_node_map.values():
-            for fare in fares:
-                row = fare.to_dict()
-                row['key'] = get_flight_key(fare)
-                writer.writerow(row)
+        for fares_by_dest in fares_node_map.values():
+            for fares in fares_by_dest.values():
+                for fare in fares:
+                    row = fare.to_dict()
+                    row['key'] = get_flight_key(fare)
+                    writer.writerow(row)
 
 PARALLEL_FACTOR = 3
-def get_reachable_fares(
-        ryanair: Ryanair,
+def find_closed_paths(
+        adjacency: Dict[str, List[str]],
         origin: str,
-        dests: List[str],
-        from_date: date,
-        to_date: date,
-        cutoff: int,
-    ) -> Dict[str, List[OneWayFare]]:
-    
-    # Add early filtering of destinations
+        cutoff: int
+    ) -> List[List[str]]:
+    """Find all closed paths using dfs from origin to origin with no repeated nodes within cutoff length."""
+    closed_paths: List[List[str]] = []
+
+    def dfs_cycles(current: str, path: List[str], visited: Set[str]):
+        if len(path) > cutoff:
+            return
+
+        # If we can return to origin and path is longer than 2 nodes, we found a cycle
+        if len(path) > 2 and origin in adjacency.get(current, []):
+            # Create a complete cycle by adding origin at the end
+            closed_paths.append(path + [origin])
+            return
+
+        # Continue DFS
+        for next_node in adjacency.get(current, []):
+            if next_node not in visited:
+                path.append(next_node)
+                visited.add(next_node)
+                dfs_cycles(next_node, path[:], visited)  # Pass a copy of path to avoid modifying it
+                path.pop()
+                visited.remove(next_node)
+
+    # Start DFS from origin
+    dfs_cycles(origin, [origin], {origin})
+    return closed_paths
+
+def get_adjacency_list(
+        ryanair: Ryanair,
+        dests: List[str]
+    ) -> Dict[str, List[str]]:
+        # Add early filtering of destinations
     allowed_dests = set(dests) if dests else None
 
     ryanair_network = nx.Graph()
@@ -240,7 +279,7 @@ def get_reachable_fares(
         len(ryanair_network.nodes)
     )
 
-    logger.info(f"Using {processes} processes to get fares")
+    logger.info(f"Using {processes} processes to get all destinations")
 
     with mp.Pool(processes) as pool:
         destinations_by_node = pool.map(
@@ -248,35 +287,59 @@ def get_reachable_fares(
             (code for code in ryanair_network.nodes)
         )
 
+    # Build adjacency list for faster DFS
+    adjacency = {}
     for code, dests in zip(ryanair_network.nodes, destinations_by_node):
         if allowed_dests:
-            for dest in filter(lambda d: d in allowed_dests, dests):
-                ryanair_network.add_edge(code, dest)
+            filtered_dests = [d for d in dests if d in allowed_dests]
+            if filtered_dests:
+                adjacency[code] = filtered_dests
+                for dest in filtered_dests:
+                    ryanair_network.add_edge(code, dest)
         else:
-            for dest in dests:
-                ryanair_network.add_edge(code, dest)
+            if dests:
+                adjacency[code] = dests
+                for dest in dests:
+                    ryanair_network.add_edge(code, dest)
+    
+    return adjacency
 
-    cycles = nx.simple_cycles(ryanair_network, length_bound=cutoff)
+def get_reachable_fares(
+        ryanair: Ryanair,
+        origin: str,
+        closed_paths: List[List[str]],
+        from_date: date,
+        to_date: date,
+        cutoff: int,
+    ) -> Dict[str, Dict[str, List[OneWayFare]]]:
+    """Return fares for each node and destination."""
 
-    logger.info(f"Computing reachable nodes from {origin} in a trip with max {cutoff} flights")
-
+    # Build destinations dictionary from closed paths
     destinations: Dict[str, Set[str]] = {}
-    for cycle in filter(lambda cycle: origin in cycle, cycles):
-        connections = set(zip(cycle, cycle[1:] + [cycle[0]]))
-
-        for connection in connections:
-            if connection[0] in destinations:
-                destinations[connection[0]].add(connection[1])
+    for path in closed_paths:
+        for i in range(len(path) - 1):
+            curr_node = path[i]
+            next_node = path[i + 1]
+            
+            if curr_node not in destinations:
+                destinations[curr_node] = {next_node}
             else:
-                destinations[connection[0]] = {connection[1]}
-
-            if connection[1] in destinations:
-                destinations[connection[1]].add(connection[0])
+                destinations[curr_node].add(next_node)
+            
+            if next_node not in destinations:
+                destinations[next_node] = {curr_node}
             else:
-                destinations[connection[1]] = {connection[0]}
+                destinations[next_node].add(curr_node)
 
     logger.info(f"Found {len(destinations)} reachable nodes from {origin} in a trip with {cutoff} flights")
-
+    
+    processes = min(
+        int(mp.cpu_count() * PARALLEL_FACTOR),
+        len(destinations.keys())
+    )
+    print(destinations)
+    input()
+    logger.info(f"Using {processes} processes to get fares")
     with mp.Pool(processes) as pool:
         fares = pool.starmap(
             ryanair.search_one_way_fares_v2,
@@ -286,33 +349,32 @@ def get_reachable_fares(
             )
         )
 
-    fares_node_map = {
-        node: fares[i]
+    return {
+        node: {dest: list(filter(lambda fare: fare.destination == dest, fares[i])) for dest in destinations[node]}
         for i, node in enumerate(destinations.keys())
     }
 
-    return fares_node_map
-
 def get_reachable_graph(
         origin: str,
-        fares_node_map: Dict[str, List[OneWayFare]]
+        fares_node_map: Dict[str, Dict[str, List[OneWayFare]]]
     ) -> nx.MultiDiGraph:
 
     reachable_graph = nx.MultiDiGraph()
     reachable_graph.add_nodes_from(fares_node_map.keys())
 
-    for fares in fares_node_map.values():
-        for fare in fares:
-            reachable_graph.add_edge(
-                fare.origin,
-                fare.destination,
-                key=get_flight_key(fare),
-                dep_time=fare.dep_time,
-                arr_time=fare.arr_time,
-                weight=fare.fare,
-                left=fare.left,
-                currency=fare.currency
-            )
+    for fares_by_dest in fares_node_map.values():
+        for fares in fares_by_dest.values():
+            for fare in fares:
+                reachable_graph.add_edge(
+                    fare.origin,
+                    fare.destination,
+                    key=get_flight_key(fare),
+                    dep_time=fare.dep_time,
+                    arr_time=fare.arr_time,
+                    weight=fare.fare,
+                    left=fare.left,
+                    currency=fare.currency
+                )
     
     logger.info(f"Reachable graph for {origin} has {len(reachable_graph.nodes)} nodes and {len(reachable_graph.edges)} edges")
     return reachable_graph

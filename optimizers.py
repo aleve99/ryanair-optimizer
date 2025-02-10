@@ -10,8 +10,10 @@ from ryanair.utils.config import parse_proxies
 from ryanair.utils.server import make_clickable
 from ryanair.utils.multitrip import get_reachable_graph, get_reachable_fares, \
                                     preprocess_graph, find_multi_city_trips, \
+                                    find_closed_paths, get_adjacency_list, \
                                     load_reachable_fares, save_reachable_fares, \
-                                    load_trips, save_trips, save_airports
+                                    load_trips, save_trips, save_airports, \
+                                    preprocess_fares
 
 
 logger = logging.getLogger("ryanair")
@@ -171,32 +173,42 @@ def optimizer_multi_trip(
         proxies = parse_proxies(proxy_path)
         ryanair.sm.extend_proxies_pool(proxies)
     
-    logger.info("Getting reachable fares")
+    logger.info("Starting reachable fares scraping...")
     
+    logger.info("Getting closed paths...")
+    closed_paths = find_closed_paths(
+        get_adjacency_list(ryanair, dests), origin, cutoff
+    )
+    logger.info(f"Found {len(closed_paths)} closed paths")
+
     if (data_path / "fares.csv").exists():
         logger.info("Loading fares from CSV")
         fares_node_map = load_reachable_fares(data_path)
     else:
         fares_node_map = get_reachable_fares(
-            ryanair, origin, dests, from_date, to_date, cutoff
+            ryanair, origin, closed_paths, from_date, to_date, cutoff
         )
     
         logger.info("Saving fares to CSV")
         save_reachable_fares(fares_node_map, data_path / "fares.csv")
-    
 
-    logger.info("Getting reachable graph")
-    reachable_graph = get_reachable_graph(origin, fares_node_map)
+    fares_count = sum(sum(len(fares) for fares in fares_by_dest.values()) for fares_by_dest in fares_node_map.values())
+    fares_node_map = preprocess_fares(fares_node_map, max_price)
     
-    logger.info("Preprocessing graph")
-    reachable_graph = preprocess_graph(reachable_graph, max_price)
-    
+    diff = fares_count - sum(sum(len(fares) for fares in fares_by_dest.values()) for fares_by_dest in fares_node_map.values())
+    logger.info(f"Removed {diff} fares with price greater than {max_price}")
 
     if {"trips.csv", "stays.csv", "summary.csv"}.issubset(file.name for file in Path(data_path).iterdir()):
         logger.info("Loading trips from CSV")
         trips = load_trips(data_path)
         logger.info(f"Loaded {len(trips)} trips")
-    else:
+    else:    
+        logger.info("Getting reachable graph")
+        reachable_graph = get_reachable_graph(origin, fares_node_map)
+        
+        logger.info("Preprocessing graph")
+        reachable_graph = preprocess_graph(reachable_graph, max_price)
+        
         logger.info("Finding multi-city trips")
         trips = find_multi_city_trips(
             reachable_graph,
