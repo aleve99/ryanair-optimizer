@@ -13,7 +13,7 @@ from ryanair.utils.multitrip import get_reachable_graph, get_reachable_fares, \
                                     find_closed_paths, get_adjacency_list, \
                                     load_reachable_fares, save_reachable_fares, \
                                     load_trips, save_trips, save_airports, \
-                                    preprocess_fares
+                                    preprocess_fares, get_destinations
 
 
 logger = logging.getLogger("ryanair")
@@ -181,12 +181,15 @@ def optimizer_multi_trip(
     )
     logger.info(f"Found {len(closed_paths)} closed paths")
 
+    destinations = get_destinations(closed_paths)
+    logger.info(f"Found {len(destinations)} reachable nodes from {origin} in a trip with {cutoff} flights")
+
     if (data_path / "fares.csv").exists():
         logger.info("Loading fares from CSV")
         fares_node_map = load_reachable_fares(data_path)
     else:
         fares_node_map = get_reachable_fares(
-            ryanair, origin, closed_paths, from_date, to_date, cutoff
+            ryanair, destinations, from_date, to_date
         )
     
         logger.info("Saving fares to CSV")

@@ -304,17 +304,9 @@ def get_adjacency_list(
     
     return adjacency
 
-def get_reachable_fares(
-        ryanair: Ryanair,
-        origin: str,
-        closed_paths: List[List[str]],
-        from_date: date,
-        to_date: date,
-        cutoff: int,
-    ) -> Dict[str, Dict[str, List[OneWayFare]]]:
-    """Return fares for each node and destination."""
-
-    # Build destinations dictionary from closed paths
+def get_destinations(closed_paths: List[List[str]]) -> Dict[str, Set[str]]:
+    """Compute the destinations of each node from the closed paths."""
+    
     destinations: Dict[str, Set[str]] = {}
     for path in closed_paths:
         for i in range(len(path) - 1):
@@ -330,14 +322,22 @@ def get_reachable_fares(
                 destinations[next_node] = {curr_node}
             else:
                 destinations[next_node].add(curr_node)
+    
+    return destinations
 
-    logger.info(f"Found {len(destinations)} reachable nodes from {origin} in a trip with {cutoff} flights")
+def get_reachable_fares(
+        ryanair: Ryanair,
+        destinations: Dict[str, Set[str]],
+        from_date: date,
+        to_date: date,
+    ) -> Dict[str, Dict[str, List[OneWayFare]]]:
+    """Return fares for each node and destination."""
     
     processes = min(
         int(mp.cpu_count() * PARALLEL_FACTOR),
         len(destinations.keys())
     )
-    
+
     logger.info(f"Using {processes} processes to get fares")
     with mp.Pool(processes) as pool:
         fares = pool.starmap(
