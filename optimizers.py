@@ -11,11 +11,11 @@ from ryanair.utils.server import make_clickable
 from ryanair.utils.multitrip import get_reachable_graph, get_reachable_fares, \
                                     preprocess_graph, find_multi_city_trips, \
                                     find_closed_paths, get_adjacency_list, \
-                                    load_reachable_fares, save_reachable_fares, \
-                                    load_trips, save_trips, save_airports, \
-                                    preprocess_fares, get_destinations, \
-                                    find_multi_city_trips_v2, load_adjacency_list, \
-                                    save_adjacency_list
+                                    preprocess_fares, get_destinations
+
+from ryanair.utils.loaders import load_adjacency_list, save_adjacency_list, \
+                                load_reachable_fares, save_reachable_fares, \
+                                load_trips, save_trips, save_airports
 
 
 logger = logging.getLogger("ryanair")
