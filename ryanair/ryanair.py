@@ -723,6 +723,10 @@ class Ryanair:
         
         return fares
     
+    @staticmethod
+    def get_flight_key(flight: OneWayFare) -> str:
+        return f"{flight.origin}-{flight.dep_time}:{flight.destination}-{flight.arr_time}"
+
     @classmethod
     def _airport_info_url(cls, iata_code: str) -> str:
         return cls.BASE_API_URL + f'views/locate/5/airports/en/{iata_code}'

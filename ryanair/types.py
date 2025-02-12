@@ -1,5 +1,5 @@
 from dataclasses import dataclass, asdict
-from typing import Optional, List
+from typing import Optional, Tuple
 from datetime import datetime, timedelta
 
 
@@ -52,7 +52,7 @@ class Stay:
 
 @dataclass(eq=True, frozen=True)
 class Trip:
-    flights: List[OneWayFare]
+    flights: Tuple[OneWayFare, ...]
     total_cost: float
     total_duration: timedelta
-    stays: List[Stay]
+    stays: Tuple[Stay, ...]

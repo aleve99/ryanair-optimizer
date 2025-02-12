@@ -13,7 +13,9 @@ from ryanair.utils.multitrip import get_reachable_graph, get_reachable_fares, \
                                     find_closed_paths, get_adjacency_list, \
                                     load_reachable_fares, save_reachable_fares, \
                                     load_trips, save_trips, save_airports, \
-                                    preprocess_fares, get_destinations
+                                    preprocess_fares, get_destinations, \
+                                    find_multi_city_trips_v2, load_adjacency_list, \
+                                    save_adjacency_list
 
 
 logger = logging.getLogger("ryanair")
@@ -174,10 +176,24 @@ def optimizer_multi_trip(
         ryanair.sm.extend_proxies_pool(proxies)
     
     logger.info("Starting reachable fares scraping...")
-    
+
+
+
+    if (data_path / "adjacency.csv").exists():
+        logger.info("Loading adjacency list from CSV")
+        adjacency_list = load_adjacency_list(data_path)
+    else:
+        logger.info("Getting adjacency list...")
+        adjacency_list = get_adjacency_list(ryanair, dests)
+        logger.info(f"Found {len(adjacency_list)} reachable nodes from {origin} in a trip with {cutoff} flights")
+        
+        logger.info("Saving adjacency list to CSV")
+        save_adjacency_list(adjacency_list, data_path)
+
+
     logger.info("Getting closed paths...")
     closed_paths = find_closed_paths(
-        get_adjacency_list(ryanair, dests), origin, cutoff
+        adjacency_list, origin, cutoff
     )
     logger.info(f"Found {len(closed_paths)} closed paths")
 
@@ -193,7 +209,7 @@ def optimizer_multi_trip(
         )
     
         logger.info("Saving fares to CSV")
-        save_reachable_fares(fares_node_map, data_path / "fares.csv")
+        save_reachable_fares(fares_node_map, data_path)
 
     fares_count = sum(sum(len(fares) for fares in fares_by_dest.values()) for fares_by_dest in fares_node_map.values())
     fares_node_map = preprocess_fares(fares_node_map, max_price)
@@ -226,7 +242,7 @@ def optimizer_multi_trip(
 
         logger.info("Saving trips to CSV")
         save_trips(trips, data_path)
-
+    
     
     if not (data_path / "airports.csv").exists():
         logger.info("Saving airports to CSV")
