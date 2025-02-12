@@ -50,11 +50,7 @@ def find_closed_paths(
         # Continue DFS
         for next_node in adjacency.get(current, []):
             if next_node not in visited:
-                path.append(next_node)
-                visited.add(next_node)
-                dfs_cycles(next_node, path[:], visited)  # Pass a copy of path to avoid modifying it
-                path.pop()
-                visited.remove(next_node)
+                dfs_cycles(next_node, path + [next_node], visited | {next_node})
 
     # Start DFS from origin
     dfs_cycles(origin, [origin], {origin})
@@ -62,17 +58,16 @@ def find_closed_paths(
 
 def get_adjacency_list(
         ryanair: Ryanair,
-        dests: List[str]
+        origin: str,
+        allowed_dests: List[str] = None
     ) -> Dict[str, List[str]]:
-    # Add early filtering of destinations
-    allowed_dests = set(dests) if dests else None
 
-    # Use a set instead of NetworkX graph for storing airports
-    airports = set()
-    for airport in ryanair.active_airports:
-        if not allowed_dests or airport.IATA_code in allowed_dests:
-            airports.add(airport.IATA_code)
-
+    if allowed_dests:
+        airports = {airport.IATA_code for airport in ryanair.active_airports if airport.IATA_code in allowed_dests}
+        airports = {origin} | airports
+    else:
+        airports = {airport.IATA_code for airport in ryanair.active_airports}
+    
     processes = min(
         int(mp.cpu_count() * PARALLEL_FACTOR),
         len(airports)
@@ -89,13 +84,12 @@ def get_adjacency_list(
     # Build adjacency list for faster DFS
     adjacency = {}
     for code, dests in zip(airports, destinations_by_node):
+        adjacency[code] = []
+        
         if allowed_dests:
-            filtered_dests = [d for d in dests if d in allowed_dests]
-            if filtered_dests:
-                adjacency[code] = filtered_dests
-        else:
-            if dests:
-                adjacency[code] = dests
+            adjacency[code] = [d for d in dests if d in allowed_dests]
+        elif dests:
+            adjacency[code] = dests
     
     return adjacency
 

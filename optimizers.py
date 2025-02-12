@@ -185,7 +185,7 @@ def optimizer_multi_trip(
     else:
         logger.info("Getting adjacency list...")
         adjacency_list = get_adjacency_list(ryanair, dests)
-        logger.info(f"Found {len(adjacency_list)} reachable nodes from {origin} in a trip with {cutoff} flights")
+        logger.info(f"Found max {len(adjacency_list)} reachable nodes from {origin}")
         
         logger.info("Saving adjacency list to CSV")
         save_adjacency_list(adjacency_list, data_path)
