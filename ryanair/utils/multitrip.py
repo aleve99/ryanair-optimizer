@@ -2,7 +2,7 @@ import networkx as nx
 import multiprocessing as mp
 
 from datetime import date, timedelta
-from typing import List, Dict, Set, Tuple, Generator
+from typing import List, Dict, Set, Tuple
 
 from .timer import Timer
 from ..logger import logging
@@ -11,7 +11,7 @@ from ..types import OneWayFare, Trip, Stay
 
 logger = logging.getLogger("ryanair")
 
-PARALLEL_FACTOR = 3
+PARALLEL_FACTOR = 4
 
 
 def preprocess_fares(fares_node_map: Dict[str, Dict[str, List[OneWayFare]]], max_price: float):
@@ -29,31 +29,62 @@ def preprocess_graph(graph: nx.MultiDiGraph, max_price: float):
     logger.info(f"Removed {len(edges_to_remove)} edges with price greater than {max_price}")
     return graph
 
-def find_closed_paths(
-        adjacency: Dict[str, List[str]],
-        origin: str,
-        cutoff: int
-    ) -> List[List[str]]:
-    """Find all closed paths using dfs from origin to origin with no repeated nodes within cutoff length."""
+def _find_closed_paths_worker(
+    adjacency: Dict[str, List[str]],
+    origin: str,
+    start_node: str,
+    cutoff: int
+) -> List[List[str]]:
+    """Worker function to find closed paths starting with a specific node."""
     closed_paths: List[List[str]] = []
 
     def dfs_cycles(current: str, path: List[str], visited: Set[str]):
         if len(path) > cutoff:
             return
 
-        # If we can return to origin and path is longer than 2 nodes, we found a cycle
         if len(path) > 2 and origin in adjacency.get(current, []):
-            # Create a complete cycle by adding origin at the end
             closed_paths.append(path + [origin])
-            return
 
-        # Continue DFS
         for next_node in adjacency.get(current, []):
             if next_node not in visited:
                 dfs_cycles(next_node, path + [next_node], visited | {next_node})
 
-    # Start DFS from origin
-    dfs_cycles(origin, [origin], {origin})
+    dfs_cycles(start_node, [origin, start_node], {origin, start_node})
+    
+    logger.info(f"Found {len(closed_paths)} closed paths starting with {start_node}")
+    return closed_paths
+
+def find_closed_paths(
+        adjacency: Dict[str, List[str]],
+        origin: str,
+        cutoff: int
+    ) -> List[List[str]]:
+    """Find all closed paths using parallel DFS from origin to origin with no repeated nodes within cutoff length."""
+    
+    # Get initial neighbors
+    initial_neighbors = adjacency.get(origin, [])
+    if not initial_neighbors:
+        return []
+
+    # Create process pool with number of processes based on available CPUs and neighbors
+    num_processes = min(mp.cpu_count(), len(initial_neighbors))
+    
+    logger.info(f"Using {num_processes} processes for parallel path finding")
+
+    # Prepare arguments for parallel processing
+    process_args = [
+        (adjacency, origin, neighbor, cutoff)
+        for neighbor in initial_neighbors
+    ]
+
+    # Run parallel searches
+    with mp.Pool(num_processes) as pool:
+        all_paths = pool.starmap(_find_closed_paths_worker, process_args)
+
+    # Combine results from all processes
+    closed_paths = [path for sublist in all_paths for path in sublist]
+    
+    logger.info(f"Found {len(closed_paths)} closed paths in parallel")
     return closed_paths
 
 def get_adjacency_list(
@@ -360,5 +391,98 @@ def find_multi_city_trips(
         min_cost = min(trip.total_cost for trip in trips)
         max_cost = max(trip.total_cost for trip in trips)
         logger.info(f"Cost range: {min_cost:.2f} - {max_cost:.2f}")
+    
+    return trips
+
+def _process_path_worker(
+    path: Tuple[str, ...],
+    fares_node_map: Dict[str, Dict[str, List[OneWayFare]]],
+    min_nights: int,
+    max_nights: int
+) -> List[Trip]:
+    """Worker function to process a single path and find valid trips."""
+    trips: List[Trip] = []
+    num_legs = len(path) - 1
+
+    def backtrack(leg_idx: int, selected_flights: List[OneWayFare]):
+        if leg_idx == num_legs:
+            if selected_flights:
+                total_cost = sum(fare.fare for fare in selected_flights)
+                total_duration = selected_flights[-1].arr_time - selected_flights[0].dep_time
+                stays: List[Stay] = []
+
+                for i in range(len(selected_flights) - 1):
+                    stay_duration = selected_flights[i+1].dep_time - selected_flights[i].arr_time
+                    stays.append(Stay(location=path[i+1], duration=stay_duration))
+                
+                trip = Trip(
+                    flights=tuple(selected_flights),
+                    total_cost=total_cost,
+                    total_duration=total_duration,
+                    stays=tuple(stays)
+                )
+                trips.append(trip)
+            return
+
+        origin = path[leg_idx]
+        dest = path[leg_idx + 1]
+
+        available_flights = fares_node_map.get(origin, {}).get(dest, [])
+        if not available_flights:
+            return
+
+        for fare in available_flights:
+            if leg_idx > 0:
+                previous_flight = selected_flights[-1]
+                if fare.dep_time <= previous_flight.arr_time:
+                    continue
+
+                connection_time = fare.dep_time - previous_flight.arr_time
+                
+                if min_nights == 0:
+                    if connection_time.total_seconds() < 7200:
+                        continue
+                else:
+                    if not (min_nights <= connection_time.days <= max_nights):
+                        continue
+
+            backtrack(leg_idx + 1, selected_flights + [fare])
+    
+    backtrack(0, [])
+
+    if len(trips) > 0:
+        logger.info(f"Found {len(trips)} trips for path {path}")
+    
+    return trips
+
+def find_multi_city_trips_v2(
+        closed_paths: List[Tuple[str, ...]],
+        fares_node_map: Dict[str, Dict[str, List[OneWayFare]]],
+        min_nights: int,
+        max_nights: int
+    ) -> List[Trip]:
+    """Find all valid multi-city trips using parallel processing."""
+    timer = Timer(start=True)
+
+    # Determine number of processes based on CPU count and number of paths
+    num_processes = min(mp.cpu_count(), len(closed_paths))
+    
+    logger.info(f"Processing {len(closed_paths)} paths using {num_processes} processes")
+
+    # Prepare arguments for parallel processing
+    process_args = [
+        (path, fares_node_map, min_nights, max_nights)
+        for path in closed_paths
+    ]
+
+    # Process paths in parallel
+    with mp.Pool(num_processes) as pool:
+        all_trips = pool.starmap(_process_path_worker, process_args)
+
+    # Combine results from all processes
+    trips = [trip for sublist in all_trips for trip in sublist]
+    
+    timer.stop()
+    logger.info(f"Found {len(trips)} trips in {timer.seconds_elapsed} seconds")
     
     return trips

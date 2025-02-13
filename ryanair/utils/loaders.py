@@ -1,4 +1,5 @@
 import csv
+import json
 import pandas as pd
 from pathlib import Path
 from typing import List, Dict
@@ -204,27 +205,35 @@ def save_reachable_fares(
 def save_adjacency_list(
         adjacency: Dict[str, List[str]],
         path: Path,
-        filename: str = "adjacency.csv"
+        filename: str = "adjacency.json"
     ):
-    with open(path / filename, mode='w', newline='') as file:
-        writer = csv.DictWriter(file, fieldnames=['origin', 'destinations'])
-        writer.writeheader()
-        for origin, destinations in adjacency.items():
-            writer.writerow({
-                'origin': origin,
-                'destinations': ','.join(destinations)
-            })
+
+    with open(path / filename, mode='w') as file:
+        json.dump(adjacency, file)
 
 def load_adjacency_list(
         path: Path,
-        filename: str = "adjacency.csv"
+        filename: str = "adjacency.json"
     ) -> Dict[str, List[str]]:
-    adjacency = {}
-    
-    with open(path / filename, mode='r', newline='') as file:
-        reader = csv.DictReader(file)
-        for row in reader:
-            destinations = row['destinations'].split(',') if row['destinations'] else []
-            adjacency[row['origin']] = destinations
+
+    with open(path / filename, mode='r') as file:
+        adjacency = json.load(file)
     
     return adjacency
+
+def save_closed_paths(
+        closed_paths: List[List[str]],
+        path: Path,
+        filename: str = "closed_paths.json"
+    ):
+
+    with open(path / filename, mode='w') as file:
+        json.dump(tuple('-'.join(path) for path in closed_paths), file)
+
+def load_closed_paths(
+        path: Path,
+        filename: str = "closed_paths.json"
+    ) -> List[List[str]]:
+
+    with open(path / filename, mode='r') as file:
+        return [path.split('-') for path in json.load(file)]

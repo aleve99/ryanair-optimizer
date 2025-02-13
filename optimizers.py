@@ -11,13 +11,15 @@ from ryanair.utils.server import make_clickable
 from ryanair.utils.multitrip import get_reachable_graph, get_reachable_fares, \
                                     preprocess_graph, find_multi_city_trips, \
                                     find_closed_paths, get_adjacency_list, \
-                                    preprocess_fares, get_destinations
+                                    preprocess_fares, get_destinations, \
+                                    find_multi_city_trips_v2
 
 from ryanair.utils.loaders import load_adjacency_list, save_adjacency_list, \
                                 load_reachable_fares, save_reachable_fares, \
-                                load_trips, save_trips, save_airports
+                                load_trips, save_trips, save_airports, \
+                                load_closed_paths, save_closed_paths
 
-
+from ryanair.utils.timer import Timer
 logger = logging.getLogger("ryanair")
 
 def optimizer_1w(
@@ -177,25 +179,31 @@ def optimizer_multi_trip(
     
     logger.info("Starting reachable fares scraping...")
 
+    timer = Timer(start=True)
 
-
-    if (data_path / "adjacency.csv").exists():
-        logger.info("Loading adjacency list from CSV")
+    if (data_path / "adjacency.json").exists():
+        logger.info("Loading adjacency list from JSON")
         adjacency_list = load_adjacency_list(data_path)
     else:
         logger.info("Getting adjacency list...")
-        adjacency_list = get_adjacency_list(ryanair, dests)
+        adjacency_list = get_adjacency_list(ryanair, origin, dests)
         logger.info(f"Found max {len(adjacency_list)} reachable nodes from {origin}")
         
-        logger.info("Saving adjacency list to CSV")
+        logger.info("Saving adjacency list to JSON")
         save_adjacency_list(adjacency_list, data_path)
 
+    if (data_path / "closed_paths.json").exists():
+        logger.info("Loading closed paths from JSON")
+        closed_paths = load_closed_paths(data_path)
+    else:
+        logger.info("Getting closed paths...")
+        closed_paths = find_closed_paths(
+            adjacency_list, origin, cutoff
+        )   
+        logger.info(f"Found {len(closed_paths)} closed paths")
 
-    logger.info("Getting closed paths...")
-    closed_paths = find_closed_paths(
-        adjacency_list, origin, cutoff
-    )
-    logger.info(f"Found {len(closed_paths)} closed paths")
+        logger.info("Saving closed paths to CSV")
+        save_closed_paths(closed_paths, data_path)
 
     destinations = get_destinations(closed_paths)
     logger.info(f"Found {len(destinations)} reachable nodes from {origin} in a trip with {cutoff} flights")
@@ -221,21 +229,28 @@ def optimizer_multi_trip(
         logger.info("Loading trips from CSV")
         trips = load_trips(data_path)
         logger.info(f"Loaded {len(trips)} trips")
-    else:    
-        logger.info("Getting reachable graph")
-        reachable_graph = get_reachable_graph(origin, fares_node_map)
-        
-        logger.info("Preprocessing graph")
-        reachable_graph = preprocess_graph(reachable_graph, max_price)
-        
-        logger.info("Finding multi-city trips")
-        trips = find_multi_city_trips(
-            reachable_graph,
-            origin,
-            min_nights,
-            max_nights,
-            cutoff
-        )
+    else:
+        USE_V2 = False
+
+        if not USE_V2:
+            logger.info("Getting reachable graph")
+            reachable_graph = get_reachable_graph(origin, fares_node_map)
+            
+            logger.info("Preprocessing graph")
+            reachable_graph = preprocess_graph(reachable_graph, max_price)
+
+            logger.info("Finding multi-city trips")
+            trips = find_multi_city_trips(
+                reachable_graph,
+                origin,
+                min_nights,
+                max_nights,
+                cutoff
+            )
+        else:
+            trips = find_multi_city_trips_v2(
+                closed_paths, fares_node_map, min_nights, max_nights
+            )
 
         logger.info("Sorting trips per total cost")
         trips.sort(key=lambda trip: trip.total_cost)
@@ -248,5 +263,7 @@ def optimizer_multi_trip(
         logger.info("Saving airports to CSV")
         save_airports(ryanair, trips, data_path)
     
+    timer.stop()
+    logger.info(f"Process completed in {timer.seconds_elapsed} seconds")
     logger.info("All done! Data is ready to be used.")
     logger.info(f"Data is saved in {data_path.absolute()}")
