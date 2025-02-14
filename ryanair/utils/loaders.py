@@ -1,6 +1,8 @@
 import csv
 import json
+import pickle
 import pandas as pd
+import networkx as nx
 from pathlib import Path
 from typing import List, Dict
 from datetime import datetime
@@ -205,19 +207,19 @@ def save_reachable_fares(
 def save_adjacency_list(
         adjacency: Dict[str, List[str]],
         path: Path,
-        filename: str = "adjacency.json"
+        filename: str = "adjacency.pickle"
     ):
 
-    with open(path / filename, mode='w') as file:
-        json.dump(adjacency, file)
+    with open(path / filename, mode='wb') as file:
+        pickle.dump(adjacency, file)
 
 def load_adjacency_list(
         path: Path,
-        filename: str = "adjacency.json"
+        filename: str = "adjacency.pickle"
     ) -> Dict[str, List[str]]:
 
-    with open(path / filename, mode='r') as file:
-        adjacency = json.load(file)
+    with open(path / filename, mode='rb') as file:
+        adjacency = pickle.load(file)
     
     return adjacency
 
@@ -237,3 +239,49 @@ def load_closed_paths(
 
     with open(path / filename, mode='r') as file:
         return [path.split('-') for path in json.load(file)]
+    
+def save_ryanair_graph(
+        graph: nx.MultiDiGraph,
+        path: Path,
+        filename: str = "ryanair.json"
+    ):
+    graph_data = {}
+    for u, v, k, data in graph.edges(keys=True, data=True):
+        if u not in graph_data:
+            graph_data[u] = []
+        
+        edge_data = {
+            'to': v,
+            'key': k,
+            'departure': int(data['dep_time'].timestamp()),
+            'arrival': int(data['arr_time'].timestamp()),
+            'weight': float(data['weight']),
+            'currency': data['currency']
+        }
+        graph_data[u].append(edge_data)
+    
+    with open(path / filename, 'w') as f:
+        json.dump(graph_data, f)
+    
+def load_ryanair_graph(
+        path: Path,
+        filename: str = "ryanair.json"
+    ) -> nx.MultiDiGraph:
+
+    with open(path / filename, mode='r') as file:
+        graph_data = json.load(file)
+    
+    graph = nx.MultiDiGraph()
+    for u, edges in graph_data.items():
+        for edge in edges:
+            graph.add_edge(
+                u, 
+                edge['to'], 
+                key=edge['key'], 
+                dep_time=datetime.fromtimestamp(edge['departure']),
+                arr_time=datetime.fromtimestamp(edge['arrival']),
+                weight=edge['weight'],
+                currency=edge['currency']
+            )
+    
+    return graph

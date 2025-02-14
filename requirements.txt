@@ -3,3 +3,5 @@ grequests
 pandas
 plotly
 networkx
+psycopg2-binary
+pybind11

@@ -1,8 +1,13 @@
 import networkx as nx
 import multiprocessing as mp
+import queue
+import threading
+import pickle
+from pathlib import Path
+import gc
 
-from datetime import date, timedelta
-from typing import List, Dict, Set, Tuple
+from datetime import date, timedelta, datetime
+from typing import List, Dict, Set, Tuple, Generator
 
 from .timer import Timer
 from ..logger import logging
@@ -89,38 +94,48 @@ def find_closed_paths(
 
 def get_adjacency_list(
         ryanair: Ryanair,
-        origin: str,
-        allowed_dests: List[str] = None
-    ) -> Dict[str, List[str]]:
+        origin: 'str | None' = None,
+        allowed_dests: List[str] = []
+    ) -> Dict[str, Set[str]]:
 
+    # Filter airports based on allowed destinations if provided
+    airports = {airport.IATA_code for airport in ryanair.active_airports}
     if allowed_dests:
-        airports = {airport.IATA_code for airport in ryanair.active_airports if airport.IATA_code in allowed_dests}
-        airports = {origin} | airports
-    else:
-        airports = {airport.IATA_code for airport in ryanair.active_airports}
+        airports = {code for code in airports if code in allowed_dests}
+        if origin:
+            airports.add(origin)
+    
+    if not airports:
+        logger.warning("No valid airports found for adjacency list")
+        return {}
     
     processes = min(
         int(mp.cpu_count() * PARALLEL_FACTOR),
         len(airports)
     )
 
-    logger.info(f"Using {processes} processes to get all destinations")
+    logger.info(f"Using {processes} processes to get destinations")
 
-    with mp.Pool(processes) as pool:
-        destinations_by_node = pool.map(
-            ryanair.get_destination_codes,
-            airports
-        )
+    try:
+        with mp.Pool(processes) as pool:
+            destinations_by_node = pool.map(
+                ryanair.get_destination_codes,
+                airports
+            )
+    except Exception as e:
+        logger.error(f"Failed to fetch destinations in parallel: {e}")
+        return {}
 
-    # Build adjacency list for faster DFS
-    adjacency = {}
+    adjacency: Dict[str, Set[str]] = {}
     for code, dests in zip(airports, destinations_by_node):
-        adjacency[code] = []
-        
-        if allowed_dests:
-            adjacency[code] = [d for d in dests if d in allowed_dests]
-        elif dests:
-            adjacency[code] = dests
+        if dests:
+            if allowed_dests:
+                adjacency[code] = {d for d in dests if d in allowed_dests}
+            else:
+                adjacency[code] = set(dests)
+            
+            if not adjacency[code]:
+                del adjacency[code]
     
     return adjacency
 
@@ -176,7 +191,6 @@ def get_reachable_fares(
     }
 
 def get_reachable_graph(
-        origin: str,
         fares_node_map: Dict[str, Dict[str, List[OneWayFare]]]
     ) -> nx.MultiDiGraph:
 
@@ -197,7 +211,6 @@ def get_reachable_graph(
                     currency=fare.currency
                 )
     
-    logger.info(f"Reachable graph for {origin} has {len(reachable_graph.nodes)} nodes and {len(reachable_graph.edges)} edges")
     return reachable_graph
 
 def _depth_first_search_from_edge(
@@ -243,7 +256,7 @@ def _depth_first_search_from_edge(
                     if len(new_path) == 2:
                         continue
                     else:
-                        valid_paths.append(new_path)    
+                        valid_paths.append(new_path)
                         continue
                 
                 if len(new_path) >= cutoff:
@@ -393,7 +406,7 @@ def find_multi_city_trips(
         logger.info(f"Cost range: {min_cost:.2f} - {max_cost:.2f}")
     
     return trips
-
+    
 def _process_path_worker(
     path: Tuple[str, ...],
     fares_node_map: Dict[str, Dict[str, List[OneWayFare]]],
@@ -455,6 +468,25 @@ def _process_path_worker(
     
     return trips
 
+def _get_path_fares(
+    path: Tuple[str, ...],
+    fares_node_map: Dict[str, Dict[str, List[OneWayFare]]]
+) -> Dict[str, Dict[str, List[OneWayFare]]]:
+    """Extract only the fares needed for a specific path."""
+    path_fares: Dict[str, Dict[str, List[OneWayFare]]] = {}
+    
+    for i in range(len(path) - 1):
+        origin = path[i]
+        dest = path[i + 1]
+        
+        if origin not in path_fares:
+            path_fares[origin] = {}
+            
+        if dest in fares_node_map.get(origin, {}):
+            path_fares[origin][dest] = fares_node_map[origin][dest]
+    
+    return path_fares
+
 def find_multi_city_trips_v2(
         closed_paths: List[Tuple[str, ...]],
         fares_node_map: Dict[str, Dict[str, List[OneWayFare]]],
@@ -469,9 +501,9 @@ def find_multi_city_trips_v2(
     
     logger.info(f"Processing {len(closed_paths)} paths using {num_processes} processes")
 
-    # Prepare arguments for parallel processing
+    # Prepare arguments for parallel processing with filtered fares
     process_args = [
-        (path, fares_node_map, min_nights, max_nights)
+        (path, _get_path_fares(path, fares_node_map), min_nights, max_nights)
         for path in closed_paths
     ]
 
@@ -486,3 +518,38 @@ def find_multi_city_trips_v2(
     logger.info(f"Found {len(trips)} trips in {timer.seconds_elapsed} seconds")
     
     return trips
+
+def get_ryanair_graph(
+        ryanair: Ryanair,
+        adjacency_list: Dict[str, Set[str]],
+        from_date: date,
+        to_date: date
+    ) -> nx.MultiDiGraph:
+    
+    graph = nx.MultiDiGraph()
+
+    for airport in ryanair.active_airports:
+        graph.add_node(
+            airport.IATA_code,
+            lat=airport.lat,
+            lng=airport.lng,
+            location=airport.location
+        )
+
+    fares = get_reachable_fares(ryanair, adjacency_list, from_date, to_date)
+
+    for origin, fares_by_dest in fares.items():
+        for dest, fares in fares_by_dest.items():
+            for fare in fares:
+                graph.add_edge(
+                    origin,
+                    dest,
+                    key=Ryanair.get_flight_key(fare),
+                    dep_time=fare.dep_time,
+                    arr_time=fare.arr_time,
+                    weight=fare.fare,
+                    left=fare.left,
+                    currency=fare.currency
+                )
+    
+    return graph

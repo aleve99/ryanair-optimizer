@@ -2,7 +2,7 @@ import logging
 import grequests
 
 from copy import deepcopy
-from typing import Optional, Tuple, List, Iterable, Dict 
+from typing import Optional, Tuple, List, Iterable, Dict, Any
 from datetime import date, timedelta, datetime, time
 from requests import Response, get
 from pathlib import Path
@@ -23,7 +23,7 @@ class Ryanair:
 
     def __init__(
             self,
-            config_path: Path,
+            config: Dict[str, Any],
             USD: Optional[bool] = False
         ) -> None:
         
@@ -33,7 +33,7 @@ class Ryanair:
         else:
             self._currency_str = ""
             self._market = "it-it"
-        config = parse_toml(config_path)
+
         self.sm = SessionManager(
             timeout=config['network']['timeout'],
             pool_size=config['network']['pool_size']
@@ -725,7 +725,7 @@ class Ryanair:
     
     @staticmethod
     def get_flight_key(flight: OneWayFare) -> str:
-        return f"{flight.origin}-{flight.dep_time}:{flight.destination}-{flight.arr_time}"
+        return f"{flight.origin}({flight.dep_time}):{flight.destination}({flight.arr_time})"
 
     @classmethod
     def _airport_info_url(cls, iata_code: str) -> str:
