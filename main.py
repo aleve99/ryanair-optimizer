@@ -3,9 +3,9 @@ from argparse import ArgumentParser, ArgumentError
 from datetime import date
 from pathlib import Path
 
-from optimizers import optimizer_1w, optimizer_rt, optimizer_multi_trip
-from ryanair.utils.args_check import check_positive, check_paths
-from ryanair.utils.server import serve_table
+from funcs.optimizers import optimizer_1w, optimizer_rt, optimizer_multi_trip
+from funcs.args_check import check_positive, check_paths
+from funcs.server import serve_table
 
 _CONFIG_DEFAULT_PATH_ = Path("config/config.toml")
 _PROXYLIST_DEFAULT_PATH_ = Path("config/proxy_list.txt")
@@ -186,25 +186,26 @@ def main():
             cutoff=args.cutoff,
             max_price=args.max_price
         )
+        
         return
     
     if df.empty:
         logger.info("No valid trips found")
-        return
+    else:
+        filename = f"fares_{args.origin}_" \
+                   f"{'_'.join(dests) if dests else 'ALL'}_" + \
+                    ('one_way' if one_way else 'round_trip')
 
-    filename = f"fares_{args.origin}_" \
-               f"{'_'.join(dests) if dests else 'ALL'}_" \
-                'one_way' if one_way else 'round_trip'
-    
-    dir = _FARES_DIR_ / filename
-    dir.mkdir(exist_ok=True)
+        dir = _FARES_DIR_ / filename
+        dir.mkdir(exist_ok=True)
 
-    df.to_csv(
-        dir / "fares.csv",
-        index=False
-    )
+        df.to_csv(
+            dir / "fares.csv",
+            index=False
+        )
 
-    serve_table(df, dir)
+        if args.serve_html:
+            serve_table(df, dir)
 
 if __name__ == "__main__":
     main()

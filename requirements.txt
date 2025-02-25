@@ -1,7 +1,4 @@
-requests
-grequests
 pandas
 plotly
 networkx
-psycopg2-binary
-pybind11
+ryanair@git+https://github.com/aleve99/ryanair.git@main
