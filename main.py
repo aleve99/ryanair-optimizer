@@ -77,18 +77,18 @@ def main():
         help='Display prices in USD, otherwise the origin airport currency is used'
     )
 
-    ref_max_nights = parser.add_argument(
-        "--max-nights",
+    ref_max_days = parser.add_argument(
+        "--max-days",
         default=None,
         type=check_positive,
-        help="The maximum nights of vacation, must be >= 0"
+        help="The maximum days of vacation, must be >= 0"
     )
 
-    ref_min_nights = parser.add_argument(
-        "--min-nights",
+    ref_min_days = parser.add_argument(
+        "--min-days",
         default=None,
         type=check_positive,
-        help=f"The minimum nights of vacation, must be >= 0 and less than {ref_max_nights.option_strings[0]}"
+        help=f"The minimum days of vacation, must be >= 0 and less than {ref_max_days.option_strings[0]}"
     )
 
     parser.add_argument(
@@ -125,22 +125,22 @@ def main():
         ((args.config_path, "toml"), (args.proxy_path, "txt"))
     )
 
-    if args.min_nights and not args.max_nights:
+    if args.min_days and not args.max_days:
         raise ArgumentError(
-            argument=ref_max_nights,
-            message=f"must be provided when {ref_min_nights.option_strings[0]} is provided"
+            argument=ref_max_days,
+            message=f"must be provided when {ref_min_days.option_strings[0]} is provided"
         )
-    elif not args.min_nights and args.max_nights:
+    elif not args.min_days and args.max_days:
         raise ArgumentError(
-            argument=ref_min_nights,
-            message=f"must be provided when {ref_max_nights.option_strings[0]} is provided"
+            argument=ref_min_days,
+            message=f"must be provided when {ref_max_days.option_strings[0]} is provided"
         )
-    elif args.min_nights and args.max_nights and args.min_nights > args.max_nights:
+    elif args.min_days and args.max_days and args.min_days > args.max_days:
         raise ArgumentError(
-            argument=ref_min_nights,
-            message=f"must be less than {ref_max_nights.option_strings[0]}"
+            argument=ref_min_days,
+            message=f"must be less than {ref_max_days.option_strings[0]}"
         )
-    elif args.min_nights and args.max_nights:
+    elif args.min_days and args.max_days:
         one_way = False
     else:
         one_way = True
@@ -163,8 +163,8 @@ def main():
             origin=args.origin,
             from_date=args.from_date,
             to_date=args.to_date,
-            min_nights=args.min_nights,
-            max_nights=args.max_nights,
+            min_days=args.min_days,
+            max_days=args.max_days,
             dests=dests,
             config_path=args.config_path,
             proxy_path=args.proxy_path,
@@ -176,8 +176,8 @@ def main():
             origin=args.origin,
             from_date=args.from_date,
             to_date=args.to_date,
-            min_nights=args.min_nights,
-            max_nights=args.max_nights,
+            min_days=args.min_days,
+            max_days=args.max_days,
             dests=dests,
             config_path=args.config_path,
             proxy_path=args.proxy_path,

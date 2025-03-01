@@ -216,12 +216,22 @@ def get_reachable_graph(
     
     return reachable_graph
 
+def is_valid_stay(arrival: int, departure: int, min_days: int, max_days: int) -> bool:
+    if min_days == 0:
+        # For connections (min_days=0), check hours
+        stay_hours = (departure - arrival) // 3600
+        return stay_hours >= 4 and stay_hours <= max_days * 24  # Minimum 4 hour connection
+    else:
+        # For stays, check nights
+        stay_nights = (departure - arrival) // 86400
+        return stay_nights >= min_days and stay_nights <= max_days
+
 def _depth_first_search_from_edge(
         graph: nx.MultiDiGraph,
         origin: str,
         start_edge: tuple,
-        min_nights: int,
-        max_nights: int,
+        min_days: int,
+        max_days: int,
         cutoff: int
     ) -> List[List[tuple]]:
     """Process paths starting with a specific edge."""
@@ -245,12 +255,10 @@ def _depth_first_search_from_edge(
                 if curr_departure <= prev_arrival:
                     continue
                 
-                time_diff: timedelta = curr_departure - prev_arrival
-                
-                if min_nights == 0:
-                    if time_diff.total_seconds() < 7200:  # 2 hours minimum
-                        continue
-                elif not (min_nights <= time_diff.days <= max_nights):
+                t1 = prev_arrival.timestamp()
+                t2 = curr_departure.timestamp()
+
+                if not is_valid_stay(t1, t2, min_days, max_days):
                     continue
                 
                 new_path = current_path + [(start_node, successor, edge_key)]
@@ -275,8 +283,8 @@ def _depth_first_search_from_edge(
 def get_valid_paths(
         graph: nx.MultiDiGraph,
         origin: str,
-        min_nights: int,
-        max_nights: int,
+        min_days: int,
+        max_days: int,
         cutoff: int,
     ) -> List[List[str]]:
     """Find all valid closed paths from origin respecting length and time constraints.""" 
@@ -297,7 +305,7 @@ def get_valid_paths(
     
     # Prepare arguments for multiprocessing
     process_args = [
-        (graph, origin, edge, min_nights, max_nights, cutoff)
+        (graph, origin, edge, min_days, max_days, cutoff)
         for edge in initial_edges
     ]
     
@@ -374,8 +382,8 @@ def path_to_trips(graph: nx.MultiDiGraph, paths: List[List[tuple]]) -> List[Trip
 def find_multi_city_trips(
         graph: nx.MultiDiGraph,
         origin: str,
-        min_nights: int,
-        max_nights: int,
+        min_days: int,
+        max_days: int,
         cutoff: int,
     ) -> List[Trip]:
     """Find all valid multi-city flights and return them as detailed trips."""
@@ -385,8 +393,8 @@ def find_multi_city_trips(
     valid_paths = get_valid_paths(
         graph, 
         origin, 
-        min_nights, 
-        max_nights, 
+        min_days, 
+        max_days, 
         cutoff
     )
     
@@ -413,8 +421,8 @@ def find_multi_city_trips(
 def _process_path_worker(
     path: Tuple[str, ...],
     fares_node_map: Dict[str, Dict[str, List[OneWayFare]]],
-    min_nights: int,
-    max_nights: int
+    min_days: int,
+    max_days: int
 ) -> List[Trip]:
     """Worker function to process a single path and find valid trips."""
     trips: List[Trip] = []
@@ -455,11 +463,11 @@ def _process_path_worker(
 
                 connection_time = fare.dep_time - previous_flight.arr_time
                 
-                if min_nights == 0:
+                if min_days == 0:
                     if connection_time.total_seconds() < 7200:
                         continue
                 else:
-                    if not (min_nights <= connection_time.days <= max_nights):
+                    if not (min_days <= connection_time.days <= max_days):
                         continue
 
             backtrack(leg_idx + 1, selected_flights + [fare])
@@ -493,8 +501,8 @@ def _get_path_fares(
 def find_multi_city_trips_v2(
         closed_paths: List[Tuple[str, ...]],
         fares_node_map: Dict[str, Dict[str, List[OneWayFare]]],
-        min_nights: int,
-        max_nights: int
+        min_days: int,
+        max_days: int
     ) -> List[Trip]:
     """Find all valid multi-city trips using parallel processing."""
     timer = Timer(start=True)
@@ -506,7 +514,7 @@ def find_multi_city_trips_v2(
 
     # Prepare arguments for parallel processing with filtered fares
     process_args = [
-        (path, _get_path_fares(path, fares_node_map), min_nights, max_nights)
+        (path, _get_path_fares(path, fares_node_map), min_days, max_days)
         for path in closed_paths
     ]
 

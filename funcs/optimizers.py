@@ -86,8 +86,8 @@ def optimizer_rt(
         origin: str,
         from_date: date,
         to_date: date,
-        min_nights: int,
-        max_nights: int,
+        min_days: int,
+        max_days: int,
         dests: List[str],
         config_path: Path,
         proxy_path: Path,
@@ -116,8 +116,8 @@ def optimizer_rt(
 
     fares = ryanair.search_round_trip_fares(
         origin=airport.IATA_code,
-        min_nights=min_nights,
-        max_nights=max_nights,
+        min_nights=min_days,
+        max_nights=max_days,
         from_date=from_date,
         to_date=to_date,
         destinations=dests
@@ -162,16 +162,16 @@ def optimizer_multi_trip(
         no_proxy: bool,
         cutoff: int,
         max_price: float,
-        min_nights: int = 0,
-        max_nights: int = 7,
+        min_days: int = 0,
+        max_days: int = 7,
         data_path: Path = Path("data")
     ) -> None:
     
     if not data_path.exists():
         data_path.mkdir(parents=True)
 
-    if min_nights is None or max_nights is None:
-        raise ValueError("min_nights and max_nights must be provided")
+    if min_days is None or max_days is None:
+        raise ValueError("min_days and max_days must be provided")
 
     logger.info(f"Using config path: {config_path.absolute()}")
     logger.info(f"Using proxies path: {proxy_path.absolute()}")
@@ -253,14 +253,14 @@ def optimizer_multi_trip(
             trips = find_multi_city_trips(
                 reachable_graph,
                 origin,
-                min_nights,
-                max_nights,
+                min_days,
+                max_days,
                 cutoff
             )
         else:
             logger.info("Finding multi-city trips using new algorithm")
             trips = find_multi_city_trips_v2(
-                closed_paths, fares_node_map, min_nights, max_nights
+                closed_paths, fares_node_map, min_days, max_days
             )
 
         logger.info("Sorting trips per total cost")
